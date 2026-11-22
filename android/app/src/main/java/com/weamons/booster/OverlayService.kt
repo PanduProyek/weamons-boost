@@ -1,15 +1,18 @@
 package com.weamons.booster
 
 import android.app.ActivityManager
+import android.app.ActivityOptions
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.ContentResolver
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.Icon
 import android.media.AudioManager
@@ -17,6 +20,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.BatteryManager
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -56,14 +60,17 @@ class OverlayService : Service() {
     private lateinit var pingTv: TextView
     private lateinit var timerTv: TextView
     private lateinit var dndBtn: Button
+    private lateinit var recBtn: Button
     private lateinit var volBar: SeekBar
     private lateinit var brightBar: SeekBar
     private lateinit var brightBtn: Button
     private lateinit var audio: AudioManager
+    private val profBtns = ArrayList<Button>()
 
     private val handler = Handler(Looper.getMainLooper())
     private val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
     private val hosts = arrayOf("1.1.1.1", "8.8.8.8", "9.9.9.9")
+    private val profNames = arrayOf("Hemat", "Seimbang", "Pro")
 
     private var startTime = 0L
     private var gamePkg: String? = null
@@ -79,12 +86,22 @@ class OverlayService : Service() {
     private var timerEnd = 0L
     private var hotWarned = false
     private var lowWarned = false
+    private var popupHinted = false
+
+    // profil performa
+    private var profile = -1
+    private var origBright = 128
+    private var origMode = 0
+    private var origSync = true
 
     @Volatile
     private var running = false
 
     @Volatile
     private var lastPing = -1
+
+    @Volatile
+    private var pingDelay = 4000L
     private var pingThread: Thread? = null
 
     private val ticker = object : Runnable {
@@ -127,6 +144,8 @@ class OverlayService : Service() {
         startTime = System.currentTimeMillis()
         buildOverlay()
         if (Prefs.autoDnd(this)) setDnd(true)
+        val sp = Prefs.startProfile(this)
+        if (sp in 0..2) applyProfile(sp)
         startPing()
         handler.post(ticker)
         return START_NOT_STICKY
@@ -166,6 +185,13 @@ class OverlayService : Service() {
         return t
     }
 
+    private fun tint(b: Button, color: String) {
+        val shape = GradientDrawable()
+        shape.setColor(Color.parseColor(color))
+        shape.cornerRadius = d(8f).toFloat()
+        b.background = shape
+    }
+
     private fun btn(label: String, onClick: () -> Unit): Button {
         val b = Button(this)
         b.text = label
@@ -177,10 +203,7 @@ class OverlayService : Service() {
         b.minimumWidth = 0
         b.setPadding(d(4f), 0, d(4f), 0)
         b.setTextColor(Color.WHITE)
-        val shape = GradientDrawable()
-        shape.setColor(Color.parseColor("#902DE0"))
-        shape.cornerRadius = d(8f).toFloat()
-        b.background = shape
+        tint(b, "#902DE0")
         b.setOnClickListener { onClick() }
         return b
     }
@@ -316,14 +339,49 @@ class OverlayService : Service() {
         brightRow.addView(brightBtn, LinearLayout.LayoutParams(0, d(32f), 1f))
         panel.addView(brightRow)
 
-        // tombol aksi
-        val actions = LinearLayout(this)
-        actions.orientation = LinearLayout.HORIZONTAL
+        // profil performa
+        val profLabel = txt(11f, "#A99CC6")
+        profLabel.text = "Profil performa"
+        profLabel.setPadding(0, d(4f), 0, 0)
+        panel.addView(profLabel)
+        val profRow = LinearLayout(this)
+        profRow.orientation = LinearLayout.HORIZONTAL
+        for (i in 0..2) {
+            val b = btn(profNames[i]) { applyProfile(i) }
+            profBtns.add(b)
+            profRow.addView(b, rowLp(1f))
+        }
+        panel.addView(profRow)
+
+        // aksi cepat 1: screenshot, rekam, bersihkan RAM
+        val row1 = LinearLayout(this)
+        row1.orientation = LinearLayout.HORIZONTAL
+        row1.addView(btn("Screenshot") { takeShot() }, rowLp(1.3f))
+        recBtn = btn("Rekam") { toggleRecord() }
+        row1.addView(recBtn, rowLp(1f))
+        row1.addView(btn("Bersih RAM") { cleanRam() }, rowLp(1.2f))
+        panel.addView(row1)
+
+        // aksi cepat 2: DND, chat pop-up, tutup
+        val row2 = LinearLayout(this)
+        row2.orientation = LinearLayout.HORIZONTAL
         dndBtn = btn("DND: OFF") { toggleDnd() }
-        actions.addView(dndBtn, rowLp(1f))
-        actions.addView(btn("Bersihkan RAM") { cleanRam() }, rowLp(1.3f))
-        actions.addView(btn("Tutup") { stopSelf() }, rowLp(0.8f))
-        panel.addView(actions)
+        row2.addView(dndBtn, rowLp(1.2f))
+        val chats = arrayOf(
+            Pair("com.whatsapp", "WA"),
+            Pair("com.whatsapp.w4b", "WA Biz"),
+            Pair("com.discord", "Discord"),
+            Pair("org.telegram.messenger", "Telegram")
+        )
+        var count = 0
+        for (c in chats) {
+            if (count < 2 && packageManager.getLaunchIntentForPackage(c.first) != null) {
+                row2.addView(btn(c.second) { openChat(c.first) }, rowLp(1f))
+                count++
+            }
+        }
+        row2.addView(btn("Tutup") { stopSelf() }, rowLp(0.9f))
+        panel.addView(row2)
 
         handleTv = TextView(this)
         handleTv.textSize = 10f * sc
@@ -408,6 +466,7 @@ class OverlayService : Service() {
 
         fillRoot()
         wm.addView(r, params)
+        updateProfileButtons()
         updateStats()
     }
 
@@ -415,7 +474,7 @@ class OverlayService : Service() {
     private fun fillRoot() {
         val r = root ?: return
         r.removeAllViews()
-        val panelLp = LinearLayout.LayoutParams(d(230f), LinearLayout.LayoutParams.WRAP_CONTENT)
+        val panelLp = LinearLayout.LayoutParams(d(250f), LinearLayout.LayoutParams.WRAP_CONTENT)
         val handleLp = LinearLayout.LayoutParams(d(26f), d(72f))
         val rad = d(8f).toFloat()
         if (dockSide == 0) {
@@ -452,6 +511,10 @@ class OverlayService : Service() {
             } catch (e: Exception) {
             }
         }
+    }
+
+    private fun hidePanel() {
+        if (panel.visibility != View.GONE) togglePanel()
     }
 
     // ---------- data ----------
@@ -498,6 +561,14 @@ class OverlayService : Service() {
         }
     }
 
+    private fun restoreBrightness() {
+        try {
+            Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE, origMode)
+            Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, origBright)
+        } catch (e: Exception) {
+        }
+    }
+
     private fun startPing() {
         running = true
         val t = Thread {
@@ -513,7 +584,7 @@ class OverlayService : Service() {
                 }
                 lastPing = res
                 try {
-                    Thread.sleep(4000)
+                    Thread.sleep(pingDelay)
                 } catch (e: InterruptedException) {
                     break
                 }
@@ -607,6 +678,15 @@ class OverlayService : Service() {
             timerTv.text = "Timer: --"
         }
 
+        // tombol rekam
+        if (RecorderService.recording) {
+            recBtn.text = "Stop"
+            tint(recBtn, "#DC2626")
+        } else {
+            recBtn.text = "Rekam"
+            tint(recBtn, "#902DE0")
+        }
+
         // slider suara dan kecerahan
         if (panel.visibility == View.VISIBLE) {
             val canWrite = Settings.System.canWrite(this)
@@ -625,6 +705,74 @@ class OverlayService : Service() {
                 alertUser("Sudah $mins menit main. Istirahat sebentar!")
             }
         }
+    }
+
+    // ---------- profil performa ----------
+    private fun setSync(on: Boolean) {
+        try {
+            ContentResolver.setMasterSyncAutomatically(on)
+        } catch (e: Exception) {
+        }
+    }
+
+    private fun setKeepOn(on: Boolean) {
+        val r = root ?: return
+        params.flags = if (on) {
+            params.flags or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        } else {
+            params.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON.inv()
+        }
+        try {
+            wm.updateViewLayout(r, params)
+        } catch (e: Exception) {
+        }
+    }
+
+    private fun updateProfileButtons() {
+        for (i in profBtns.indices) {
+            tint(profBtns[i], if (i == profile) "#16A34A" else "#902DE0")
+        }
+    }
+
+    private fun applyProfile(p: Int) {
+        val canWrite = Settings.System.canWrite(this)
+        if (profile == -1) {
+            origBright = currentBrightness()
+            origMode = try {
+                Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE)
+            } catch (e: Exception) {
+                0
+            }
+            origSync = ContentResolver.getMasterSyncAutomatically()
+        }
+        profile = p
+        when (p) {
+            0 -> {
+                if (canWrite) applyBrightness(90)
+                setSync(false)
+                setDnd(true)
+                setKeepOn(false)
+                pingDelay = 10000L
+            }
+            1 -> {
+                if (canWrite) restoreBrightness()
+                setSync(origSync)
+                setDnd(false)
+                setKeepOn(false)
+                pingDelay = 4000L
+            }
+            else -> {
+                if (canWrite) applyBrightness(205)
+                setSync(false)
+                setDnd(true)
+                setKeepOn(true)
+                pingDelay = 2000L
+                cleanRam()
+            }
+        }
+        updateProfileButtons()
+        val extra = if (canWrite) "" else " (izinkan atur kecerahan agar layar ikut berubah)"
+        Toast.makeText(this, "Profil " + profNames[p] + extra, Toast.LENGTH_SHORT).show()
     }
 
     // ---------- tombol aksi ----------
@@ -672,6 +820,70 @@ class OverlayService : Service() {
         }, 1200)
     }
 
+    private fun takeShot() {
+        if (Build.VERSION.SDK_INT < 28 || !BoosterAccessibilityService.isEnabled(this)) {
+            Toast.makeText(
+                this,
+                "Aktifkan layanan aksesibilitas WEAMONS dulu (lihat panduan di aplikasi)",
+                Toast.LENGTH_LONG
+            ).show()
+            val i = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(i)
+            return
+        }
+        hidePanel()
+        handler.postDelayed({
+            if (!BoosterAccessibilityService.screenshot()) {
+                Toast.makeText(this, "Screenshot gagal, coba lagi", Toast.LENGTH_SHORT).show()
+            }
+        }, 600)
+    }
+
+    private fun toggleRecord() {
+        if (RecorderService.recording) {
+            val i = Intent(this, RecorderService::class.java)
+            i.action = "STOP"
+            startService(i)
+        } else {
+            hidePanel()
+            val i = Intent(this, ProjectionActivity::class.java)
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(i)
+        }
+    }
+
+    private fun openChat(pkg: String) {
+        val li = packageManager.getLaunchIntentForPackage(pkg)
+        if (li == null) {
+            Toast.makeText(this, "Aplikasi tidak ditemukan", Toast.LENGTH_SHORT).show()
+            return
+        }
+        li.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val w = screenW()
+        val h = screenH()
+        val bw = (w * 0.42f).toInt()
+        val bh = (h * 0.8f).toInt()
+        val left = (w - bw) / 2
+        val top = (h - bh) / 2
+        val opts = ActivityOptions.makeBasic()
+        opts.setLaunchBounds(Rect(left, top, left + bw, top + bh))
+        hidePanel()
+        if (!popupHinted) {
+            popupHinted = true
+            Toast.makeText(
+                this,
+                "Jendela mengambang hanya jalan jika HP mendukung. Jika tidak, chat terbuka layar penuh.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+        try {
+            startActivity(li, opts.toBundle())
+        } catch (e: Exception) {
+            Toast.makeText(this, "Gagal membuka aplikasi", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun flushStats() {
         val pkg = gamePkg
         if (pkg != null && startTime > 0L) {
@@ -690,6 +902,10 @@ class OverlayService : Service() {
                     setDnd(false)
                 } catch (e: Exception) {
                 }
+            }
+            if (profile != -1) {
+                setSync(origSync)
+                if (Settings.System.canWrite(this)) restoreBrightness()
             }
             try {
                 wm.removeView(root)

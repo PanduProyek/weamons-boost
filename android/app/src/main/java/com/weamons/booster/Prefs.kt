@@ -58,6 +58,12 @@ object Prefs {
         sp(c).edit().putBoolean("tempAlert", v).apply()
     }
 
+    // profil otomatis saat game mulai: -1 = tidak ada, 0 = hemat, 1 = seimbang, 2 = pro
+    fun startProfile(c: Context): Int = sp(c).getInt("startProfile", -1)
+    fun setStartProfile(c: Context, v: Int) {
+        sp(c).edit().putInt("startProfile", v).apply()
+    }
+
     fun pingHost(c: Context): Int = sp(c).getInt("pingHost", 0)
     fun setPingHost(c: Context, v: Int) {
         sp(c).edit().putInt("pingHost", v).apply()

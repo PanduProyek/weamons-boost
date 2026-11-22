@@ -80,6 +80,19 @@ class MainActivity : Activity() {
                 Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName"))
             )
         })
+        permCard.addView(button("Buka layanan Aksesibilitas (untuk Screenshot)") {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        })
+        permCard.addView(button("Buka info aplikasi (izinkan setelan terbatas)") {
+            startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+            )
+        })
+        permCard.addView(small(
+            "Screenshot: nyalakan layanan \"WEAMONS BOOST (screenshot)\" di Aksesibilitas. " +
+                "Jika tombolnya abu-abu (Android 13+), buka Info aplikasi, tekan titik tiga di kanan atas, " +
+                "pilih \"Izinkan setelan terbatas\", lalu ulangi."
+        ))
         permCard.addView(button("Tes bilah (tanpa buka game)") { startBar(null) })
         permCard.addView(button("Hentikan bilah") {
             stopService(Intent(this, OverlayService::class.java))
@@ -116,6 +129,15 @@ class MainActivity : Activity() {
         }
         setCard.addView(breakBtn)
 
+        val profBtn = button("") { }
+        profBtn.text = profileText()
+        profBtn.setOnClickListener {
+            val next = Prefs.startProfile(this) + 1
+            Prefs.setStartProfile(this, if (next > 2) -1 else next)
+            profBtn.text = profileText()
+        }
+        setCard.addView(profBtn)
+
         setCard.addView(small("Transparansi bilah"))
         val alphaBar = SeekBar(this)
         alphaBar.max = 70
@@ -143,6 +165,37 @@ class MainActivity : Activity() {
         )
         setCard.addView(small("Ukuran dan posisi berlaku saat bilah dimulai ulang. Bilah juga bisa ditarik ke pinggir mana saja."))
         root.addView(setCard)
+
+        // ---------- PANDUAN ----------
+        val guideCard = card()
+        guideCard.addView(label("PANDUAN FITUR"))
+        guideCard.addView(small(
+            "PROFIL PERFORMA\n" +
+                "Hemat: kecerahan rendah, sinkron latar mati, Jangan Ganggu aktif.\n" +
+                "Seimbang: kembali ke pengaturan awal.\n" +
+                "Pro: sinkron latar mati, Jangan Ganggu aktif, RAM dibersihkan, layar tidak mati. " +
+                "Profil tidak menaikkan kecepatan CPU. Semua pengaturan dikembalikan saat bilah ditutup."
+        ))
+        guideCard.addView(small(
+            "REKAM LAYAR\n" +
+                "Tombol Rekam di bilah meminta izin sistem, lalu merekam layar tanpa suara. " +
+                "Hasil ada di galeri, folder Movies/WEAMONS."
+        ))
+        guideCard.addView(small(
+            "CHAT MENGAMBANG\n" +
+                "Tombol WA/Discord membuka aplikasinya dalam jendela kecil. Ini hanya jalan jika HP mendukung " +
+                "jendela freeform (Opsi pengembang: Aktifkan jendela freeform). Jika tidak, chat terbuka layar penuh."
+        ))
+        guideCard.addView(small(
+            "KUNCI NAVIGASI (ANTI TERTEKAN)\n" +
+                "Aplikasi biasa tidak bisa memblokir tombol Home/Back/Recent milik sistem. Cara resmi yang bisa dipakai: " +
+                "Sematkan layar (Pin windows). Nyalakan di Pengaturan > Keamanan, lalu buka Recent, ketuk ikon game, " +
+                "pilih Sematkan. Untuk melepas, tahan Back + Recent. Game Booster bawaan HP biasanya punya opsi blokir gestur juga."
+        ))
+        guideCard.addView(button("Buka pengaturan keamanan (Sematkan layar)") {
+            startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))
+        })
+        root.addView(guideCard)
 
         // ---------- STATISTIK ----------
         val statCard = card()
@@ -209,6 +262,12 @@ class MainActivity : Activity() {
         return "Ukuran bilah: " + names[Prefs.scale(this)]
     }
 
+    private fun profileText(): String {
+        val names = arrayOf("Hemat Baterai", "Seimbang", "Performa Tinggi")
+        val p = Prefs.startProfile(this)
+        return "Profil saat game mulai: " + (if (p in 0..2) names[p] else "Tidak ada")
+    }
+
     private fun breakText(): String {
         val m = Prefs.breakMin(this)
         return "Pengingat istirahat: " + (if (m == 0) "Mati" else "$m menit")
@@ -222,9 +281,11 @@ class MainActivity : Activity() {
         val o = if (overlay) "aktif" else "BELUM (wajib)"
         val d = if (dnd) "aktif" else "belum (opsional)"
         val w = if (write) "aktif" else "belum (opsional)"
+        val a = if (BoosterAccessibilityService.isEnabled(this)) "aktif" else "belum (untuk Screenshot)"
         statusView.text = "Tampil di atas aplikasi lain: $o\n" +
             "Akses Jangan Ganggu: $d\n" +
-            "Atur kecerahan layar: $w"
+            "Atur kecerahan layar: $w\n" +
+            "Layanan Screenshot (Aksesibilitas): $a"
     }
 
     private fun renderStats() {
