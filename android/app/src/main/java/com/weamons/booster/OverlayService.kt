@@ -72,6 +72,7 @@ class OverlayService : Service() {
     private val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
     private val hosts = arrayOf("1.1.1.1", "8.8.8.8", "9.9.9.9")
     private val profNames = arrayOf("Hemat", "Seimbang", "Pro")
+    private val profIcons = arrayOf("\uD83D\uDD0B", "\u2696\uFE0F", "\u26A1")
 
     private var startTime = 0L
     private var gamePkg: String? = null
@@ -203,7 +204,7 @@ class OverlayService : Service() {
         b.background = shape
     }
 
-    private fun btn(label: String, onClick: () -> Unit): Button {
+    private fun btn(label: String, color: String = "#6D28D9", onClick: () -> Unit): Button {
         val b = Button(this)
         b.text = label
         b.isAllCaps = false
@@ -214,14 +215,36 @@ class OverlayService : Service() {
         b.minimumWidth = 0
         b.setPadding(d(4f), 0, d(4f), 0)
         b.setTextColor(Color.WHITE)
-        tint(b, "#902DE0")
+        b.typeface = android.graphics.Typeface.DEFAULT_BOLD
+        tint(b, color)
         b.setOnClickListener { onClick() }
         return b
     }
 
+    // kartu bagian dengan judul kecil
+    private fun section(title: String): LinearLayout {
+        val c = LinearLayout(this)
+        c.orientation = LinearLayout.VERTICAL
+        c.setPadding(d(8f), d(6f), d(8f), d(8f))
+        val bg = GradientDrawable()
+        bg.setColor(Color.parseColor("#33FFFFFF"))
+        bg.cornerRadius = d(10f).toFloat()
+        c.background = bg
+        val lp = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        lp.setMargins(0, d(8f), 0, 0)
+        panel.addView(c, lp)
+        val t = txt(10f, "#B79CFF")
+        t.text = title
+        t.setTypeface(null, android.graphics.Typeface.BOLD)
+        c.addView(t)
+        return c
+    }
+
     private fun rowLp(weight: Float): LinearLayout.LayoutParams {
-        val lp = LinearLayout.LayoutParams(0, d(32f), weight)
-        lp.setMargins(d(2f), d(4f), d(2f), 0)
+        val lp = LinearLayout.LayoutParams(0, d(36f), weight)
+        lp.setMargins(d(3f), d(5f), d(3f), 0)
         return lp
     }
 
@@ -362,10 +385,10 @@ class OverlayService : Service() {
     private fun buildOverlay() {
         panel = LinearLayout(this)
         panel.orientation = LinearLayout.VERTICAL
-        panel.setPadding(d(10f), d(8f), d(10f), d(8f))
+        panel.setPadding(d(12f), d(10f), d(12f), d(12f))
         val panelBg = GradientDrawable()
-        panelBg.setColor(Color.parseColor("#F2211831"))
-        panelBg.cornerRadius = d(12f).toFloat()
+        panelBg.setColor(Color.parseColor("#FA14101F"))
+        panelBg.cornerRadius = d(14f).toFloat()
         panel.background = panelBg
         panel.visibility = View.GONE
 
@@ -386,9 +409,10 @@ class OverlayService : Service() {
             Prefs.setPingHost(this, (Prefs.pingHost(this) + 1) % hosts.size)
             lastPing = -1
         }
-        panel.addView(batteryTv)
-        panel.addView(ramTv)
-        panel.addView(pingTv)
+        val stat = section("STATUS")
+        stat.addView(batteryTv)
+        stat.addView(ramTv)
+        stat.addView(pingTv)
 
         // timer cepat
         timerTv = txt(12f, "#FFFFFF")
@@ -397,10 +421,10 @@ class OverlayService : Service() {
         timerRow.orientation = LinearLayout.HORIZONTAL
         timerRow.gravity = Gravity.CENTER_VERTICAL
         timerRow.addView(timerTv, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.4f))
-        timerRow.addView(btn("5m") { startTimer(5) }, rowLp(1f))
-        timerRow.addView(btn("10m") { startTimer(10) }, rowLp(1f))
-        timerRow.addView(btn("15m") { startTimer(15) }, rowLp(1f))
-        panel.addView(timerRow)
+        timerRow.addView(btn("5m", "#4338CA") { startTimer(5) }, rowLp(1f))
+        timerRow.addView(btn("10m", "#4338CA") { startTimer(10) }, rowLp(1f))
+        timerRow.addView(btn("15m", "#4338CA") { startTimer(15) }, rowLp(1f))
+        section("TIMER").addView(timerRow)
 
         // volume
         volBar = SeekBar(this)
@@ -431,7 +455,8 @@ class OverlayService : Service() {
         volLabel.text = "Suara"
         volRow.addView(volLabel, LinearLayout.LayoutParams(d(44f), LinearLayout.LayoutParams.WRAP_CONTENT))
         volRow.addView(volBar, LinearLayout.LayoutParams(0, d(30f), 1f))
-        panel.addView(volRow)
+        val sl = section("SUARA DAN LAYAR")
+        sl.addView(volRow)
 
         // kecerahan
         brightBar = SeekBar(this)
@@ -463,35 +488,33 @@ class OverlayService : Service() {
         brightRow.addView(brightLabel, LinearLayout.LayoutParams(d(44f), LinearLayout.LayoutParams.WRAP_CONTENT))
         brightRow.addView(brightBar, LinearLayout.LayoutParams(0, d(30f), 1f))
         brightRow.addView(brightBtn, LinearLayout.LayoutParams(0, d(32f), 1f))
-        panel.addView(brightRow)
+        sl.addView(brightRow)
 
         // profil performa
-        val profLabel = txt(11f, "#A99CC6")
-        profLabel.text = "Profil performa"
-        profLabel.setPadding(0, d(4f), 0, 0)
-        panel.addView(profLabel)
+        val profSec = section("PROFIL PERFORMA")
         val profRow = LinearLayout(this)
         profRow.orientation = LinearLayout.HORIZONTAL
         for (i in 0..2) {
-            val b = btn(profNames[i]) { applyProfile(i) }
+            val b = btn(profIcons[i] + " " + profNames[i], "#3B3363") { applyProfile(i) }
             profBtns.add(b)
             profRow.addView(b, rowLp(1f))
         }
-        panel.addView(profRow)
+        profSec.addView(profRow)
 
         // aksi cepat 1: screenshot, rekam, bersihkan RAM
         val row1 = LinearLayout(this)
         row1.orientation = LinearLayout.HORIZONTAL
-        row1.addView(btn("Screenshot") { takeShot() }, rowLp(1.3f))
-        recBtn = btn("Rekam") { toggleRecord() }
-        row1.addView(recBtn, rowLp(1f))
-        row1.addView(btn("Bersih RAM") { cleanRam() }, rowLp(1.2f))
-        panel.addView(row1)
+        row1.addView(btn("\uD83D\uDCF7 Foto", "#2563EB") { takeShot() }, rowLp(1f))
+        recBtn = btn("\u23FA Rekam", "#E11D48") { toggleRecord() }
+        row1.addView(recBtn, rowLp(1.1f))
+        row1.addView(btn("\uD83E\uDDF9 RAM", "#0D9488") { cleanRam() }, rowLp(1f))
+        val act = section("AKSI CEPAT")
+        act.addView(row1)
 
         // aksi cepat 2: DND, chat pop-up, tutup
         val row2 = LinearLayout(this)
         row2.orientation = LinearLayout.HORIZONTAL
-        dndBtn = btn("DND: OFF") { toggleDnd() }
+        dndBtn = btn("DND: OFF", "#D97706") { toggleDnd() }
         row2.addView(dndBtn, rowLp(1.2f))
         val chats = arrayOf(
             Pair("com.whatsapp", "WA"),
@@ -502,21 +525,21 @@ class OverlayService : Service() {
         var count = 0
         for (c in chats) {
             if (count < 2 && packageManager.getLaunchIntentForPackage(c.first) != null) {
-                row2.addView(btn(c.second) { openChat(c.first) }, rowLp(1f))
+                row2.addView(btn("\uD83D\uDCAC " + c.second, "#16A34A") { openChat(c.first) }, rowLp(1f))
                 count++
             }
         }
-        row2.addView(btn("Tutup") { stopSelf() }, rowLp(0.9f))
-        panel.addView(row2)
+        row2.addView(btn("\u2716 Tutup", "#475569") { stopSelf() }, rowLp(0.9f))
+        act.addView(row2)
 
         // aksi cepat 3: crosshair
         val row3 = LinearLayout(this)
         row3.orientation = LinearLayout.HORIZONTAL
-        crossBtn = btn("Crosshair: OFF") { toggleCross() }
+        crossBtn = btn("Crosshair: OFF", "#0891B2") { toggleCross() }
         row3.addView(crossBtn, rowLp(1.6f))
-        row3.addView(btn("Gaya") { cycleCross("style", CrosshairView.STYLE_NAMES.size, 2) }, rowLp(1f))
-        row3.addView(btn("Warna") { cycleCross("color", CrosshairView.COLORS.size, 0) }, rowLp(1f))
-        panel.addView(row3)
+        row3.addView(btn("Gaya", "#6D28D9") { cycleCross("style", CrosshairView.STYLE_NAMES.size, 2) }, rowLp(1f))
+        row3.addView(btn("Warna", "#6D28D9") { cycleCross("color", CrosshairView.COLORS.size, 0) }, rowLp(1f))
+        section("CROSSHAIR").addView(row3)
 
         handleTv = TextView(this)
         handleTv.textSize = 10f * sc
@@ -607,7 +630,7 @@ class OverlayService : Service() {
     private fun fillRoot() {
         val r = root ?: return
         r.removeAllViews()
-        val panelLp = LinearLayout.LayoutParams(d(250f), LinearLayout.LayoutParams.WRAP_CONTENT)
+        val panelLp = LinearLayout.LayoutParams(d(280f), LinearLayout.LayoutParams.WRAP_CONTENT)
         val handleLp = LinearLayout.LayoutParams(d(26f), d(72f))
         val rad = d(8f).toFloat()
         if (dockSide == 0) {
@@ -813,11 +836,11 @@ class OverlayService : Service() {
 
         // tombol rekam
         if (RecorderService.recording) {
-            recBtn.text = "Stop"
-            tint(recBtn, "#DC2626")
+            recBtn.text = "\u23F9 Stop"
+            tint(recBtn, "#991B1B")
         } else {
-            recBtn.text = "Rekam"
-            tint(recBtn, "#902DE0")
+            recBtn.text = "\u23FA Rekam"
+            tint(recBtn, "#E11D48")
         }
 
         // slider suara dan kecerahan
@@ -863,7 +886,7 @@ class OverlayService : Service() {
 
     private fun updateProfileButtons() {
         for (i in profBtns.indices) {
-            tint(profBtns[i], if (i == profile) "#16A34A" else "#902DE0")
+            tint(profBtns[i], if (i == profile) "#16A34A" else "#3B3363")
         }
     }
 
