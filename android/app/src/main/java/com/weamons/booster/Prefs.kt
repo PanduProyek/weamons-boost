@@ -86,6 +86,23 @@ object Prefs {
         sp(c).edit().putInt("pingHost", v).apply()
     }
 
+    // ---------- umum + layar Booster ----------
+    fun getInt(c: Context, key: String, def: Int): Int = sp(c).getInt(key, def)
+    fun setInt(c: Context, key: String, v: Int) {
+        sp(c).edit().putInt(key, v).apply()
+    }
+
+    fun meterOn(c: Context): Boolean = sp(c).getBoolean("meterOn", false)
+    fun setMeterOn(c: Context, v: Boolean) {
+        sp(c).edit().putBoolean("meterOn", v).apply()
+    }
+
+    // game yang dipilih di layar Booster
+    fun boostPkg(c: Context): String? = sp(c).getString("boostPkg", null)
+    fun setBoostPkg(c: Context, v: String) {
+        sp(c).edit().putString("boostPkg", v).apply()
+    }
+
     fun favs(c: Context): Set<String> {
         val s = sp(c).getStringSet("favs", null)
         return if (s == null) emptySet() else HashSet<String>(s)

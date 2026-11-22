@@ -87,6 +87,10 @@ class OverlayService : Service() {
     private var crossParams: WindowManager.LayoutParams? = null
     private var crossSig = 0
     private lateinit var crossBtn: Button
+    private lateinit var monTv: TextView
+    private lateinit var graph: GraphView
+    private lateinit var meterBtn: Button
+    private var meter: MeterOverlay? = null
     private var volTracking = false
     private var brightTracking = false
     private var breakMin = 0
@@ -131,6 +135,7 @@ class OverlayService : Service() {
         startForeground(1, buildNotification())
 
         val newPkg = intent?.getStringExtra("pkg")
+        val boost = intent?.getBooleanExtra("boost", false) ?: false
         if (root != null) {
             if (newPkg != null && newPkg != gamePkg) {
                 flushStats()
@@ -138,6 +143,7 @@ class OverlayService : Service() {
                 breakDone = 0
                 gamePkg = newPkg
             }
+            if (boost) applyProfile(2)
             return START_NOT_STICKY
         }
 
@@ -157,7 +163,12 @@ class OverlayService : Service() {
         syncCross()
         if (Prefs.autoDnd(this)) setDnd(true)
         val sp = Prefs.startProfile(this)
-        if (sp in 0..2) applyProfile(sp)
+        if (boost) applyProfile(2) else if (sp in 0..2) applyProfile(sp)
+        if (Prefs.meterOn(this)) {
+            meter = MeterOverlay(this, wm)
+            meter?.show()
+            updateMeterBtn()
+        }
         startPing()
         handler.post(ticker)
         return START_NOT_STICKY
@@ -402,6 +413,18 @@ class OverlayService : Service() {
         head.addView(sessionTv)
         panel.addView(head)
 
+        // ringkasan + grafik CPU/RAM seperti GamePanel
+        monTv = txt(11f, "#C9D6FF")
+        monTv.gravity = Gravity.CENTER
+        monTv.setPadding(0, d(6f), 0, d(4f))
+        panel.addView(monTv, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+        graph = GraphView(this)
+        panel.addView(graph, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, d(64f)
+        ))
+
         batteryTv = txt(12f, "#FFFFFF")
         ramTv = txt(12f, "#FFFFFF")
         pingTv = txt(12f, "#FFFFFF")
@@ -540,6 +563,10 @@ class OverlayService : Service() {
         row3.addView(btn("Gaya", "#6D28D9") { cycleCross("style", CrosshairView.STYLE_NAMES.size, 2) }, rowLp(1f))
         row3.addView(btn("Warna", "#6D28D9") { cycleCross("color", CrosshairView.COLORS.size, 0) }, rowLp(1f))
         section("CROSSHAIR").addView(row3)
+
+        // meter melayang: CPU / RAM / BAT / TEMP / HZ
+        meterBtn = btn("Meter: OFF", "#0F766E") { toggleMeter() }
+        section("METER").addView(meterBtn, rowLp(1f))
 
         handleTv = TextView(this)
         handleTv.textSize = 10f * sc
@@ -834,6 +861,13 @@ class OverlayService : Service() {
             timerTv.text = "Timer: --"
         }
 
+        // ringkasan, grafik, dan meter
+        val snap = SysMon.read(this)
+        val cpuTxt = if (snap.cpu >= 0) "${snap.cpu}%" else "--"
+        monTv.text = "Cpu $cpuTxt   Ram ${snap.ram}%   Baterai ${snap.bat}%"
+        graph.push(snap.cpu, snap.ram)
+        meter?.update(snap)
+
         // tombol rekam
         if (RecorderService.recording) {
             recBtn.text = "\u23F9 Stop"
@@ -1040,6 +1074,23 @@ class OverlayService : Service() {
         }
     }
 
+    private fun updateMeterBtn() {
+        val on = meter?.isShown == true
+        meterBtn.text = if (on) "Meter: ON" else "Meter: OFF"
+    }
+
+    private fun toggleMeter() {
+        val m = meter ?: MeterOverlay(this, wm).also { meter = it }
+        if (m.isShown) {
+            m.hide()
+            Prefs.setMeterOn(this, false)
+        } else {
+            m.show()
+            Prefs.setMeterOn(this, true)
+        }
+        updateMeterBtn()
+    }
+
     private fun flushStats() {
         val pkg = gamePkg
         if (pkg != null && startTime > 0L) {
@@ -1052,6 +1103,7 @@ class OverlayService : Service() {
         pingThread?.interrupt()
         handler.removeCallbacksAndMessages(null)
         if (root != null) {
+            meter?.hide()
             removeCross()
             flushStats()
             if (dndOn) {
