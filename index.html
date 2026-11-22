@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#090711">
+<link rel="manifest" href="manifest.json">
+<title>WEAMONS BOOST</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:#090711;color:#fff;font-family:Arial,sans-serif}
+h1{color:#b77aff;text-align:center;margin:10px 0 0}
+.sub{text-align:center;color:#8d84a8;font-size:13px;margin:4px 0 20px}
+.card{background:#211831;border-radius:16px;padding:18px;margin-top:16px}
+h2{font-size:15px;margin:0 0 12px;letter-spacing:1px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.box{background:#2d2142;border-radius:12px;padding:12px}
+.box small{color:#a99cc6;font-size:11px}
+.box b{display:block;font-size:22px;color:#c9a2ff;margin-top:4px}
+button{background:#902de0;color:#fff;padding:14px;border:none;border-radius:10px;width:100%;margin-top:10px;font-size:14px}
+button.off{background:#4a3a66}
+.note{color:#8d84a8;font-size:12px;margin-top:10px}
+.bar{height:6px;background:#3a2c55;border-radius:4px;margin-top:8px;overflow:hidden}
+.bar i{display:block;height:100%;background:#b77aff;width:0}
+</style>
+</head>
+<body>
+<h1>WEAMONS BOOST</h1>
+<p class="sub">ULTIMATE GAMING COMPANION</p>
+
+<div class="card">
+<h2>⚡ LIVE DEVICE MONITOR</h2>
+<div class="grid">
+<div class="box"><small>CPU CORES</small><b id="cpu">-</b></div>
+<div class="box"><small>RAM (PERKIRAAN)</small><b id="ram">-</b></div>
+<div class="box"><small>BATERAI</small><b id="bat">-</b><div class="bar"><i id="batbar"></i></div></div>
+<div class="box"><small>JARINGAN</small><b id="net">-</b></div>
+</div>
+</div>
+
+<div class="card">
+<h2>📈 FPS COUNTER</h2>
+<div class="grid">
+<div class="box"><small>FPS SEKARANG</small><b id="fps">-</b></div>
+<div class="box"><small>RATA-RATA / MIN</small><b id="fpsavg">-</b></div>
+</div>
+<p class="note">Tes kelancaran layar HP saat halaman ini terbuka (bukan FPS game).</p>
+</div>
+
+<div class="card">
+<h2>📡 PING TEST</h2>
+<div class="grid">
+<div class="box"><small>PING</small><b id="ping">-</b></div>
+<div class="box"><small>JITTER</small><b id="jit">-</b></div>
+</div>
+<button id="pingbtn">MULAI TES PING</button>
+<p class="note" id="hist"></p>
+</div>
+
+<div class="card">
+<h2>🎮 GAMING CENTER</h2>
+<button id="gm">AKTIFKAN GAMING MODE</button>
+<p class="note" id="gmnote">Layar fullscreen + tidak mati otomatis.</p>
+<div class="grid" style="margin-top:12px">
+<div class="box"><small>DURASI SESI</small><b id="sess">00:00:00</b></div>
+<div class="box"><small>TOTAL HARI INI</small><b id="today">0m</b></div>
+</div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+$('cpu').textContent=navigator.hardwareConcurrency||'?';
+$('ram').textContent=navigator.deviceMemory?navigator.deviceMemory+' GB*':'?';
+
+if(navigator.getBattery){navigator.getBattery().then(b=>{
+  const u=()=>{const p=Math.round(b.level*100);$('bat').textContent=p+'%'+(b.charging?' ⚡':'');$('batbar').style.width=p+'%'};
+  u();b.onlevelchange=u;b.onchargingchange=u;
+})}else $('bat').textContent='N/A';
+
+function net(){const c=navigator.connection;$('net').textContent=c?(c.effectiveType||'?').toUpperCase():(navigator.onLine?'ON':'OFF')}
+net();if(navigator.connection)navigator.connection.onchange=net;
+addEventListener('online',net);addEventListener('offline',net);
+
+let frames=0,t0=performance.now(),hist=[];
+function loop(now){
+  frames++;
+  if(now-t0>=1000){
+    const f=Math.round(frames*1000/(now-t0));frames=0;t0=now;
+    hist.push(f);if(hist.length>30)hist.shift();
+    $('fps').textContent=f;
+    $('fpsavg').textContent=Math.round(hist.reduce((a,b)=>a+b)/hist.length)+' / '+Math.min(...hist);
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+const pingHist=[];
+$('pingbtn').onclick=async()=>{
+  const btn=$('pingbtn');btn.disabled=true;btn.textContent='MENGUKUR...';
+  const hit=async()=>{const s=performance.now();await fetch('https://www.gstatic.com/generate_204?'+Date.now()+Math.random(),{mode:'no-cors',cache:'no-store'});return performance.now()-s};
+  const r=[];
+  try{await hit();for(let i=0;i<6;i++)r.push(await hit())}catch(e){}
+  if(r.length){
+    const avg=r.reduce((a,b)=>a+b)/r.length;
+    const jit=r.slice(1).reduce((a,x,i)=>a+Math.abs(x-r[i]),0)/Math.max(r.length-1,1);
+    $('ping').textContent=Math.round(avg)+' ms';
+    $('ping').style.color=avg<80?'#4ade80':avg<150?'#facc15':'#f87171';
+    $('jit').textContent=Math.round(jit)+' ms';
+    pingHist.push(Math.round(avg));if(pingHist.length>8)pingHist.shift();
+    $('hist').textContent='Riwayat: '+pingHist.join(' · ')+' ms';
+  }else{$('ping').textContent='gagal';$('jit').textContent='-'}
+  btn.disabled=false;btn.textContent='MULAI TES PING';
+};
+
+let wl=null,start=0,tick=null,on=false;
+const key='play-'+new Date().toISOString().slice(0,10);
+const getToday=()=>{try{return +localStorage.getItem(key)||0}catch(e){return 0}};
+const addToday=s=>{try{localStorage.setItem(key,getToday()+s)}catch(e){}};
+function showToday(){const m=Math.floor(getToday()/60);$('today').textContent=m>=60?Math.floor(m/60)+'j '+m%60+'m':m+'m'}
+const pad=n=>String(n).padStart(2,'0');
+
+async function gmOn(){
+  on=true;start=Date.now();
+  try{if(navigator.wakeLock)wl=await navigator.wakeLock.request('screen')}catch(e){}
+  try{await document.documentElement.requestFullscreen()}catch(e){}
+  tick=setInterval(()=>{const s=Math.floor((Date.now()-start)/1000);$('sess').textContent=pad(Math.floor(s/3600))+':'+pad(Math.floor(s/60)%60)+':'+pad(s%60)},1000);
+  $('gm').textContent='MATIKAN GAMING MODE';$('gm').className='off';
+  $('gmnote').textContent='Aktif: layar tidak mati otomatis.'+(wl?'':' (wake lock tidak didukung)');
+}
+function gmOff(){
+  on=false;clearInterval(tick);addToday(Math.floor((Date.now()-start)/1000));showToday();
+  try{wl&&wl.release()}catch(e){}wl=null;
+  try{document.fullscreenElement&&document.exitFullscreen()}catch(e){}
+  $('gm').textContent='AKTIFKAN GAMING MODE';$('gm').className='';
+  $('gmnote').textContent='Layar fullscreen + tidak mati otomatis.';
+}
+$('gm').onclick=()=>on?gmOff():gmOn();
+showToday();
+document.addEventListener('visibilitychange',async()=>{
+  if(on&&document.visibilityState==='visible'&&!wl){try{wl=await navigator.wakeLock.request('screen')}catch(e){}}
+});
+
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script>
+</body>
+</html>
