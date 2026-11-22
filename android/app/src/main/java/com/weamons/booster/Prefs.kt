@@ -21,6 +21,23 @@ object Prefs {
         sp(c).edit().putInt("barY", v).apply()
     }
 
+    // posisi vertikal bilah sebagai pecahan tinggi layar (0..1), aman saat layar diputar
+    fun barFrac(c: Context): Float = sp(c).getFloat("barFrac", 0.5f)
+    fun setBarFrac(c: Context, v: Float) {
+        sp(c).edit().putFloat("barFrac", v).apply()
+    }
+
+    // ---------- crosshair ----------
+    fun crossOn(c: Context): Boolean = sp(c).getBoolean("crossOn", false)
+    fun setCrossOn(c: Context, v: Boolean) {
+        sp(c).edit().putBoolean("crossOn", v).apply()
+    }
+
+    fun crossInt(c: Context, key: String, def: Int): Int = sp(c).getInt("cross_" + key, def)
+    fun setCrossInt(c: Context, key: String, v: Int) {
+        sp(c).edit().putInt("cross_" + key, v).apply()
+    }
+
     // 0 = kecil, 1 = sedang, 2 = besar
     fun scale(c: Context): Int = sp(c).getInt("scale", 1)
     fun setScale(c: Context, v: Int) {

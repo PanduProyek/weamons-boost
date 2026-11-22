@@ -42,6 +42,7 @@ import java.net.Socket
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.Objects
 import kotlin.math.abs
 import kotlin.math.max
 
@@ -78,7 +79,13 @@ class OverlayService : Service() {
     private var prevFilter = NotificationManager.INTERRUPTION_FILTER_ALL
     private var sc = 0.8f
     private var dockSide = 0
-    private var barY = 0
+    private var barFrac = 0.5f
+    private var lastW = 0
+    private var lastH = 0
+    private var crossView: CrosshairView? = null
+    private var crossParams: WindowManager.LayoutParams? = null
+    private var crossSig = 0
+    private lateinit var crossBtn: Button
     private var volTracking = false
     private var brightTracking = false
     private var breakMin = 0
@@ -107,6 +114,8 @@ class OverlayService : Service() {
     private val ticker = object : Runnable {
         override fun run() {
             updateStats()
+            checkRotation()
+            syncCross()
             handler.postDelayed(this, 1000)
         }
     }
@@ -140,9 +149,11 @@ class OverlayService : Service() {
         audio = getSystemService(AudioManager::class.java)
         sc = Prefs.scaleFactor(this)
         dockSide = Prefs.side(this)
+        barFrac = Prefs.barFrac(this)
         breakMin = Prefs.breakMin(this)
         startTime = System.currentTimeMillis()
         buildOverlay()
+        syncCross()
         if (Prefs.autoDnd(this)) setDnd(true)
         val sp = Prefs.startProfile(this)
         if (sp in 0..2) applyProfile(sp)
@@ -230,6 +241,121 @@ class OverlayService : Service() {
         val r = root
         val h = if (r != null && r.height > 0) r.height else d(72f)
         return y.coerceIn(0, max(0, screenH() - h))
+    }
+
+    private fun rootH(): Int {
+        val r = root
+        return if (r != null && r.height > 0) r.height else d(72f)
+    }
+
+    // posisi Y dari pecahan tinggi layar; aman untuk portrait maupun landscape
+    private fun targetY(): Int =
+        (barFrac.coerceIn(0f, 1f) * max(0, screenH() - rootH())).toInt()
+
+    private fun dpx(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    private fun checkRotation() {
+        val w = screenW()
+        val h = screenH()
+        if (lastW != 0 && (w != lastW || h != lastH)) {
+            layoutDock()
+        }
+        lastW = w
+        lastH = h
+    }
+
+    // ---------- crosshair ----------
+    private fun addCross() {
+        if (crossView != null) return
+        val v = CrosshairView(this)
+        val box = dpx(CrosshairView.BOX_DP)
+        val p = WindowManager.LayoutParams(
+            box,
+            box,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        )
+        p.gravity = Gravity.CENTER
+        crossView = v
+        crossParams = p
+        applyCrossPrefs()
+        try {
+            wm.addView(v, p)
+        } catch (e: Exception) {
+            crossView = null
+            crossParams = null
+        }
+    }
+
+    private fun applyCrossPrefs() {
+        val v = crossView ?: return
+        val p = crossParams ?: return
+        v.style = Prefs.crossInt(this, "style", 2)
+        v.colorIndex = Prefs.crossInt(this, "color", 0)
+        v.sizeDp = Prefs.crossInt(this, "size", 12)
+        v.thickDp = Prefs.crossInt(this, "thick", 2)
+        v.gapDp = Prefs.crossInt(this, "gap", 4)
+        v.opacity = Prefs.crossInt(this, "opacity", 90)
+        p.x = dpx(Prefs.crossInt(this, "offx", 0))
+        p.y = dpx(Prefs.crossInt(this, "offy", 0))
+    }
+
+    private fun updateCross() {
+        val v = crossView ?: return
+        val p = crossParams ?: return
+        applyCrossPrefs()
+        v.invalidate()
+        try {
+            wm.updateViewLayout(v, p)
+        } catch (e: Exception) {
+        }
+    }
+
+    private fun removeCross() {
+        val v = crossView ?: return
+        try {
+            wm.removeView(v)
+        } catch (e: Exception) {
+        }
+        crossView = null
+        crossParams = null
+    }
+
+    private fun syncCross() {
+        val on = Prefs.crossOn(this)
+        if (on && crossView == null) addCross()
+        if (!on && crossView != null) removeCross()
+        if (::crossBtn.isInitialized) crossBtn.text = if (on) "Crosshair: ON" else "Crosshair: OFF"
+        if (on && crossView != null) {
+            val sig = Objects.hash(
+                Prefs.crossInt(this, "style", 2),
+                Prefs.crossInt(this, "color", 0),
+                Prefs.crossInt(this, "size", 12),
+                Prefs.crossInt(this, "thick", 2),
+                Prefs.crossInt(this, "gap", 4),
+                Prefs.crossInt(this, "opacity", 90),
+                Prefs.crossInt(this, "offx", 0),
+                Prefs.crossInt(this, "offy", 0)
+            )
+            if (sig != crossSig) {
+                crossSig = sig
+                updateCross()
+            }
+        }
+    }
+
+    private fun toggleCross() {
+        Prefs.setCrossOn(this, !Prefs.crossOn(this))
+        syncCross()
+    }
+
+    private fun cycleCross(key: String, count: Int, def: Int) {
+        Prefs.setCrossInt(this, key, (Prefs.crossInt(this, key, def) + 1) % count)
+        syncCross()
     }
 
     // ---------- membangun bilah ----------
@@ -383,6 +509,15 @@ class OverlayService : Service() {
         row2.addView(btn("Tutup") { stopSelf() }, rowLp(0.9f))
         panel.addView(row2)
 
+        // aksi cepat 3: crosshair
+        val row3 = LinearLayout(this)
+        row3.orientation = LinearLayout.HORIZONTAL
+        crossBtn = btn("Crosshair: OFF") { toggleCross() }
+        row3.addView(crossBtn, rowLp(1.6f))
+        row3.addView(btn("Gaya") { cycleCross("style", CrosshairView.STYLE_NAMES.size, 2) }, rowLp(1f))
+        row3.addView(btn("Warna") { cycleCross("color", CrosshairView.COLORS.size, 0) }, rowLp(1f))
+        panel.addView(row3)
+
         handleTv = TextView(this)
         handleTv.textSize = 10f * sc
         handleTv.setTextColor(Color.WHITE)
@@ -410,9 +545,7 @@ class OverlayService : Service() {
         )
         params.gravity = Gravity.TOP or Gravity.START
         params.x = 0
-        val savedY = Prefs.barY(this)
-        barY = if (savedY < 0) screenH() / 2 - d(36f) else savedY
-        params.y = clampY(barY)
+        params.y = targetY()
 
         handleTv.setOnTouchListener(object : View.OnTouchListener {
             private var downX = 0f
@@ -451,9 +584,9 @@ class OverlayService : Service() {
                         if (moved) {
                             val cx = params.x + r.width / 2
                             dockSide = if (cx < screenW() / 2) 0 else 1
-                            barY = params.y
+                            barFrac = params.y.toFloat() / max(1, screenH() - r.height)
                             Prefs.setSide(this@OverlayService, dockSide)
-                            Prefs.setBarY(this@OverlayService, barY)
+                            Prefs.setBarFrac(this@OverlayService, barFrac)
                             handler.post { layoutDock() }
                         } else {
                             togglePanel()
@@ -489,7 +622,7 @@ class OverlayService : Service() {
             params.gravity = Gravity.TOP or Gravity.END
         }
         params.x = 0
-        params.y = clampY(barY)
+        params.y = targetY()
     }
 
     private fun layoutDock() {
@@ -896,6 +1029,7 @@ class OverlayService : Service() {
         pingThread?.interrupt()
         handler.removeCallbacksAndMessages(null)
         if (root != null) {
+            removeCross()
             flushStats()
             if (dndOn) {
                 try {

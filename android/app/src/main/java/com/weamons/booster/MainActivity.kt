@@ -166,6 +166,57 @@ class MainActivity : Activity() {
         setCard.addView(small("Ukuran dan posisi berlaku saat bilah dimulai ulang. Bilah juga bisa ditarik ke pinggir mana saja."))
         root.addView(setCard)
 
+        // ---------- CROSSHAIR ----------
+        val crossCard = card()
+        crossCard.addView(label("CROSSHAIR"))
+        crossCard.addView(toggle("Tampilkan crosshair di tengah layar", Prefs.crossOn(this)) {
+            Prefs.setCrossOn(this, it)
+        })
+        val styleBtn = button("") { }
+        styleBtn.text = "Gaya: " + CrosshairView.STYLE_NAMES[Prefs.crossInt(this, "style", 2) % CrosshairView.STYLE_NAMES.size]
+        styleBtn.setOnClickListener {
+            val n = (Prefs.crossInt(this, "style", 2) + 1) % CrosshairView.STYLE_NAMES.size
+            Prefs.setCrossInt(this, "style", n)
+            styleBtn.text = "Gaya: " + CrosshairView.STYLE_NAMES[n]
+        }
+        crossCard.addView(styleBtn)
+        val colorBtn = button("") { }
+        colorBtn.text = "Warna: " + CrosshairView.COLOR_NAMES[Prefs.crossInt(this, "color", 0) % CrosshairView.COLOR_NAMES.size]
+        colorBtn.setOnClickListener {
+            val n = (Prefs.crossInt(this, "color", 0) + 1) % CrosshairView.COLOR_NAMES.size
+            Prefs.setCrossInt(this, "color", n)
+            colorBtn.text = "Warna: " + CrosshairView.COLOR_NAMES[n]
+        }
+        crossCard.addView(colorBtn)
+        fun seek(title: String, key: String, min: Int, max: Int, def: Int) {
+            val t = small(title + ": " + Prefs.crossInt(this, key, def))
+            val sb = SeekBar(this)
+            sb.max = max - min
+            sb.progress = Prefs.crossInt(this, key, def) - min
+            sb.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                    Prefs.setCrossInt(this@MainActivity, key, p + min)
+                    t.text = title + ": " + (p + min)
+                }
+
+                override fun onStartTrackingTouch(s: SeekBar?) {}
+                override fun onStopTrackingTouch(s: SeekBar?) {}
+            })
+            crossCard.addView(t)
+            crossCard.addView(sb)
+        }
+        seek("Ukuran", "size", 4, 50, 12)
+        seek("Ketebalan", "thick", 1, 8, 2)
+        seek("Celah tengah", "gap", 0, 20, 4)
+        seek("Opasitas", "opacity", 20, 100, 90)
+        seek("Geser horizontal", "offx", -100, 100, 0)
+        seek("Geser vertikal", "offy", -100, 100, 0)
+        crossCard.addView(small(
+            "Perubahan langsung terlihat jika bilah sedang aktif. Crosshair hanya gambar di atas layar, tidak mengubah game. " +
+                "Catatan: sebagian game (mis. Free Fire) bisa menganggap overlay crosshair sebagai pelanggaran aturan dan menindak akun. Risiko ada di kamu."
+        ))
+        root.addView(crossCard)
+
         // ---------- PANDUAN ----------
         val guideCard = card()
         guideCard.addView(label("PANDUAN FITUR"))
