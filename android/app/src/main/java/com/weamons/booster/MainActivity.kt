@@ -5,24 +5,34 @@ import android.app.Activity
 import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ResolveInfo
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.SeekBar
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 
 class MainActivity : Activity() {
 
     private lateinit var statusView: TextView
+    private lateinit var statsBox: LinearLayout
+    private lateinit var listBox: LinearLayout
+    private lateinit var items: List<Pair<ResolveInfo, String>>
+    private var query = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -53,6 +63,7 @@ class MainActivity : Activity() {
         sub.gravity = Gravity.CENTER
         root.addView(sub)
 
+        // ---------- IZIN ----------
         val permCard = card()
         permCard.addView(label("IZIN"))
         statusView = TextView(this)
@@ -61,21 +72,121 @@ class MainActivity : Activity() {
         statusView.setPadding(0, dp(8), 0, 0)
         permCard.addView(statusView)
         permCard.addView(button("Izinkan tampil di atas aplikasi lain") { openOverlaySettings() })
-        permCard.addView(button("Izinkan akses Jangan Ganggu (opsional)") {
+        permCard.addView(button("Izinkan akses Jangan Ganggu") {
             startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+        })
+        permCard.addView(button("Izinkan atur kecerahan layar") {
+            startActivity(
+                Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName"))
+            )
+        })
+        permCard.addView(button("Tes bilah (tanpa buka game)") { startBar(null) })
+        permCard.addView(button("Hentikan bilah") {
+            stopService(Intent(this, OverlayService::class.java))
         })
         root.addView(permCard)
 
+        // ---------- PENGATURAN ----------
+        val setCard = card()
+        setCard.addView(label("PENGATURAN BILAH"))
+
+        val sideBtn = button("") { }
+        sideBtn.text = sideText()
+        sideBtn.setOnClickListener {
+            Prefs.setSide(this, 1 - Prefs.side(this))
+            sideBtn.text = sideText()
+        }
+        setCard.addView(sideBtn)
+
+        val scaleBtn = button("") { }
+        scaleBtn.text = scaleText()
+        scaleBtn.setOnClickListener {
+            Prefs.setScale(this, (Prefs.scale(this) + 1) % 3)
+            scaleBtn.text = scaleText()
+        }
+        setCard.addView(scaleBtn)
+
+        val breaks = intArrayOf(0, 30, 45, 60)
+        val breakBtn = button("") { }
+        breakBtn.text = breakText()
+        breakBtn.setOnClickListener {
+            val i = breaks.indexOf(Prefs.breakMin(this))
+            Prefs.setBreakMin(this, breaks[(i + 1) % breaks.size])
+            breakBtn.text = breakText()
+        }
+        setCard.addView(breakBtn)
+
+        setCard.addView(small("Transparansi bilah"))
+        val alphaBar = SeekBar(this)
+        alphaBar.max = 70
+        alphaBar.progress = Prefs.alpha(this) - 30
+        alphaBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                Prefs.setAlpha(this@MainActivity, p + 30)
+            }
+
+            override fun onStartTrackingTouch(s: SeekBar?) {}
+            override fun onStopTrackingTouch(s: SeekBar?) {}
+        })
+        setCard.addView(alphaBar)
+
+        setCard.addView(toggle("Ping tampil di tab bilah", Prefs.hud(this)) { Prefs.setHud(this, it) })
+        setCard.addView(
+            toggle("Peringatan HP panas dan baterai rendah", Prefs.tempAlert(this)) {
+                Prefs.setTempAlert(this, it)
+            }
+        )
+        setCard.addView(
+            toggle("Jangan Ganggu otomatis saat main", Prefs.autoDnd(this)) {
+                Prefs.setAutoDnd(this, it)
+            }
+        )
+        setCard.addView(small("Ukuran dan posisi berlaku saat bilah dimulai ulang. Bilah juga bisa ditarik ke pinggir mana saja."))
+        root.addView(setCard)
+
+        // ---------- STATISTIK ----------
+        val statCard = card()
+        statCard.addView(label("STATISTIK MAIN"))
+        statsBox = LinearLayout(this)
+        statsBox.orientation = LinearLayout.VERTICAL
+        statCard.addView(statsBox)
+        root.addView(statCard)
+
+        // ---------- PILIH GAME ----------
+        val pm = packageManager
+        val q = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        items = pm.queryIntentActivities(q, 0)
+            .filter { it.activityInfo.packageName != packageName }
+            .map { Pair(it, it.loadLabel(pm).toString()) }
+
         val gameCard = card()
         gameCard.addView(label("PILIH GAME"))
-        val hint = TextView(this)
-        hint.text = "Ketuk game untuk membukanya dengan bilah samping aktif."
-        hint.setTextColor(Color.parseColor("#8D84A8"))
-        hint.textSize = 12f
-        hint.setPadding(0, dp(6), 0, dp(6))
-        gameCard.addView(hint)
-        addApps(gameCard)
+        gameCard.addView(small("Ketuk untuk membuka game dengan bilah aktif. Tahan lama untuk menandai favorit."))
+        val search = EditText(this)
+        search.hint = "Cari aplikasi..."
+        search.setHintTextColor(Color.parseColor("#8D84A8"))
+        search.setTextColor(Color.WHITE)
+        search.textSize = 14f
+        search.setSingleLine(true)
+        search.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
+            override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                query = s?.toString() ?: ""
+                renderApps()
+            }
+        })
+        gameCard.addView(search)
+        listBox = LinearLayout(this)
+        listBox.orientation = LinearLayout.VERTICAL
+        gameCard.addView(listBox)
         root.addView(gameCard)
+
+        renderApps()
+
+        root.isFocusable = true
+        root.isFocusableInTouchMode = true
+        root.requestFocus()
 
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -87,29 +198,76 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         refreshStatus()
+        renderStats()
+    }
+
+    private fun sideText(): String =
+        "Posisi bilah: " + (if (Prefs.side(this) == 0) "Kiri" else "Kanan")
+
+    private fun scaleText(): String {
+        val names = arrayOf("Kecil", "Sedang", "Besar")
+        return "Ukuran bilah: " + names[Prefs.scale(this)]
+    }
+
+    private fun breakText(): String {
+        val m = Prefs.breakMin(this)
+        return "Pengingat istirahat: " + (if (m == 0) "Mati" else "$m menit")
     }
 
     private fun refreshStatus() {
         val nm = getSystemService(NotificationManager::class.java)
         val overlay = Settings.canDrawOverlays(this)
         val dnd = nm.isNotificationPolicyAccessGranted
+        val write = Settings.System.canWrite(this)
         val o = if (overlay) "aktif" else "BELUM (wajib)"
         val d = if (dnd) "aktif" else "belum (opsional)"
-        statusView.text = "Tampil di atas aplikasi lain: $o\nAkses Jangan Ganggu: $d"
+        val w = if (write) "aktif" else "belum (opsional)"
+        statusView.text = "Tampil di atas aplikasi lain: $o\n" +
+            "Akses Jangan Ganggu: $d\n" +
+            "Atur kecerahan layar: $w"
     }
 
-    private fun openOverlaySettings() {
-        val i = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
-        startActivity(i)
+    private fun renderStats() {
+        statsBox.removeAllViews()
+        val stats = Prefs.todayStats(this)
+        if (stats.isEmpty()) {
+            statsBox.addView(small("Belum ada sesi main hari ini."))
+        } else {
+            var total = 0L
+            for ((pkg, sec) in stats) {
+                total += sec
+                val name = try {
+                    packageManager.getApplicationInfo(pkg, 0).loadLabel(packageManager).toString()
+                } catch (e: Exception) {
+                    pkg
+                }
+                val t = TextView(this)
+                t.text = name + ": " + Prefs.fmt(sec)
+                t.setTextColor(Color.WHITE)
+                t.textSize = 14f
+                t.setPadding(0, dp(4), 0, 0)
+                statsBox.addView(t)
+            }
+            statsBox.addView(small("Total hari ini: " + Prefs.fmt(total)))
+        }
+        statsBox.addView(small("7 hari terakhir: " + Prefs.fmt(Prefs.periodSeconds(this, 7))))
     }
 
-    private fun addApps(box: LinearLayout) {
+    private fun renderApps() {
+        val favs = Prefs.favs(this)
+        val q = query.trim().lowercase()
+        val shown = items
+            .filter { q.isEmpty() || it.second.lowercase().contains(q) }
+            .sortedWith(
+                compareBy<Pair<ResolveInfo, String>>(
+                    { !favs.contains(it.first.activityInfo.packageName) },
+                    { it.second.lowercase() }
+                )
+            )
+        listBox.removeAllViews()
         val pm = packageManager
-        val query = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        val apps = pm.queryIntentActivities(query, 0)
-            .filter { it.activityInfo.packageName != packageName }
-            .sortedBy { it.loadLabel(pm).toString().lowercase() }
-        for (ri in apps) {
+        for (item in shown) {
+            val ri = item.first
             val pkg = ri.activityInfo.packageName
             val row = LinearLayout(this)
             row.orientation = LinearLayout.HORIZONTAL
@@ -121,32 +279,46 @@ class MainActivity : Activity() {
             row.addView(icon, LinearLayout.LayoutParams(dp(40), dp(40)))
 
             val name = TextView(this)
-            name.text = ri.loadLabel(pm)
+            name.text = (if (favs.contains(pkg)) "★ " else "") + item.second
             name.setTextColor(Color.WHITE)
             name.textSize = 15f
             name.setPadding(dp(12), 0, 0, 0)
             row.addView(name)
 
-            row.setOnClickListener { startGame(pkg) }
-            box.addView(row)
+            row.setOnClickListener { startBar(pkg) }
+            row.setOnLongClickListener {
+                Prefs.toggleFav(this, pkg)
+                renderApps()
+                true
+            }
+            listBox.addView(row)
         }
     }
 
-    private fun startGame(pkg: String) {
+    private fun openOverlaySettings() {
+        val i = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+        startActivity(i)
+    }
+
+    private fun startBar(pkg: String?) {
         if (!Settings.canDrawOverlays(this)) {
             Toast.makeText(this, "Izinkan dulu tampil di atas aplikasi lain", Toast.LENGTH_LONG).show()
             openOverlaySettings()
             return
         }
-        val launch = packageManager.getLaunchIntentForPackage(pkg)
-        if (launch == null) {
-            Toast.makeText(this, "Aplikasi tidak bisa dibuka", Toast.LENGTH_SHORT).show()
-            return
-        }
         val svc = Intent(this, OverlayService::class.java)
-        svc.putExtra("pkg", pkg)
+        if (pkg != null) svc.putExtra("pkg", pkg)
         startForegroundService(svc)
-        startActivity(launch)
+        if (pkg != null) {
+            val launch = packageManager.getLaunchIntentForPackage(pkg)
+            if (launch == null) {
+                Toast.makeText(this, "Aplikasi tidak bisa dibuka", Toast.LENGTH_SHORT).show()
+                return
+            }
+            startActivity(launch)
+        } else {
+            Toast.makeText(this, "Bilah aktif di pinggir layar", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
@@ -159,7 +331,9 @@ class MainActivity : Activity() {
         shape.setColor(Color.parseColor("#211831"))
         shape.cornerRadius = dp(16).toFloat()
         c.background = shape
-        val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        val lp = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        )
         lp.topMargin = dp(16)
         c.layoutParams = lp
         return c
@@ -174,6 +348,26 @@ class MainActivity : Activity() {
         return t
     }
 
+    private fun small(s: String): TextView {
+        val t = TextView(this)
+        t.text = s
+        t.setTextColor(Color.parseColor("#8D84A8"))
+        t.textSize = 12f
+        t.setPadding(0, dp(6), 0, dp(4))
+        return t
+    }
+
+    private fun toggle(s: String, checked: Boolean, onChange: (Boolean) -> Unit): Switch {
+        val sw = Switch(this)
+        sw.text = s
+        sw.setTextColor(Color.WHITE)
+        sw.textSize = 14f
+        sw.isChecked = checked
+        sw.setPadding(0, dp(10), 0, dp(4))
+        sw.setOnCheckedChangeListener { _, v -> onChange(v) }
+        return sw
+    }
+
     private fun button(s: String, onClick: () -> Unit): Button {
         val b = Button(this)
         b.text = s
@@ -183,7 +377,9 @@ class MainActivity : Activity() {
         shape.setColor(Color.parseColor("#902DE0"))
         shape.cornerRadius = dp(10).toFloat()
         b.background = shape
-        val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        val lp = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        )
         lp.topMargin = dp(10)
         b.layoutParams = lp
         b.setOnClickListener { onClick() }
