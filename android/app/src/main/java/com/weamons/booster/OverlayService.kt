@@ -33,7 +33,9 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
+import android.view.ViewGroup
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
@@ -48,10 +50,16 @@ import kotlin.math.max
 
 class OverlayService : Service() {
 
+    companion object {
+        @Volatile
+        var alive = false
+    }
+
     private lateinit var wm: WindowManager
     private lateinit var params: WindowManager.LayoutParams
     private var root: LinearLayout? = null
     private lateinit var panel: LinearLayout
+    private lateinit var panelScroll: ScrollView
     private lateinit var handleTv: TextView
     private lateinit var handleBg: GradientDrawable
     private lateinit var clockTv: TextView
@@ -136,6 +144,7 @@ class OverlayService : Service() {
 
         val newPkg = intent?.getStringExtra("pkg")
         val boost = intent?.getBooleanExtra("boost", false) ?: false
+        val auto = intent?.getBooleanExtra("auto", false) ?: false
         if (root != null) {
             if (newPkg != null && newPkg != gamePkg) {
                 flushStats()
@@ -163,7 +172,10 @@ class OverlayService : Service() {
         syncCross()
         if (Prefs.autoDnd(this)) setDnd(true)
         val sp = Prefs.startProfile(this)
-        if (boost) applyProfile(2) else if (sp in 0..2) applyProfile(sp)
+        if (boost) applyProfile(2)
+        else if (sp in 0..2) applyProfile(sp)
+        else if (auto) applyProfile(2)
+        alive = true
         if (Prefs.meterOn(this)) {
             meter = MeterOverlay(this, wm)
             meter?.show()
@@ -401,7 +413,13 @@ class OverlayService : Service() {
         panelBg.setColor(Color.parseColor("#FA14101F"))
         panelBg.cornerRadius = d(14f).toFloat()
         panel.background = panelBg
-        panel.visibility = View.GONE
+        panelScroll = ScrollView(this)
+        panelScroll.isVerticalScrollBarEnabled = false
+        panelScroll.overScrollMode = View.OVER_SCROLL_NEVER
+        panelScroll.addView(panel, ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+        panelScroll.visibility = View.GONE
 
         clockTv = txt(18f, "#C9A2FF")
         sessionTv = txt(12f, "#FFFFFF")
@@ -661,18 +679,33 @@ class OverlayService : Service() {
         val handleLp = LinearLayout.LayoutParams(d(26f), d(72f))
         val rad = d(8f).toFloat()
         if (dockSide == 0) {
-            r.addView(panel, panelLp)
+            r.addView(panelScroll, panelLp)
             r.addView(handleTv, handleLp)
             handleBg.cornerRadii = floatArrayOf(0f, 0f, rad, rad, rad, rad, 0f, 0f)
             params.gravity = Gravity.TOP or Gravity.START
         } else {
             r.addView(handleTv, handleLp)
-            r.addView(panel, panelLp)
+            r.addView(panelScroll, panelLp)
             handleBg.cornerRadii = floatArrayOf(rad, rad, 0f, 0f, 0f, 0f, rad, rad)
             params.gravity = Gravity.TOP or Gravity.END
         }
         params.x = 0
         params.y = targetY()
+        fitPanel()
+    }
+
+    // tinggi panel dibatasi setinggi layar; sisanya bisa digulir
+    private fun fitPanel() {
+        panel.measure(
+            View.MeasureSpec.makeMeasureSpec(d(280f), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        val h = minOf(panel.measuredHeight, screenH() - dpx(24))
+        val lp = panelScroll.layoutParams
+        if (lp != null && lp.height != h) {
+            lp.height = h
+            panelScroll.layoutParams = lp
+        }
     }
 
     private fun layoutDock() {
@@ -686,7 +719,8 @@ class OverlayService : Service() {
 
     private fun togglePanel() {
         val r = root ?: return
-        panel.visibility = if (panel.visibility == View.GONE) View.VISIBLE else View.GONE
+        if (panelScroll.visibility == View.GONE) fitPanel()
+        panelScroll.visibility = if (panelScroll.visibility == View.GONE) View.VISIBLE else View.GONE
         handler.post {
             params.y = clampY(params.y)
             try {
@@ -697,7 +731,7 @@ class OverlayService : Service() {
     }
 
     private fun hidePanel() {
-        if (panel.visibility != View.GONE) togglePanel()
+        if (panelScroll.visibility != View.GONE) togglePanel()
     }
 
     // ---------- data ----------
@@ -878,7 +912,8 @@ class OverlayService : Service() {
         }
 
         // slider suara dan kecerahan
-        if (panel.visibility == View.VISIBLE) {
+        if (panelScroll.visibility == View.VISIBLE) {
+            fitPanel()
             val canWrite = Settings.System.canWrite(this)
             brightBar.visibility = if (canWrite) View.VISIBLE else View.GONE
             brightBtn.visibility = if (canWrite) View.GONE else View.VISIBLE
@@ -1099,6 +1134,7 @@ class OverlayService : Service() {
     }
 
     override fun onDestroy() {
+        alive = false
         running = false
         pingThread?.interrupt()
         handler.removeCallbacksAndMessages(null)

@@ -92,6 +92,11 @@ object Prefs {
         sp(c).edit().putInt(key, v).apply()
     }
 
+    fun autoBoost(c: Context): Boolean = sp(c).getBoolean("autoBoost", false)
+    fun setAutoBoost(c: Context, v: Boolean) {
+        sp(c).edit().putBoolean("autoBoost", v).apply()
+    }
+
     fun meterOn(c: Context): Boolean = sp(c).getBoolean("meterOn", false)
     fun setMeterOn(c: Context, v: Boolean) {
         sp(c).edit().putBoolean("meterOn", v).apply()

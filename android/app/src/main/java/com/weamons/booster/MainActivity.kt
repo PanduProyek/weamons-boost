@@ -163,6 +163,22 @@ class MainActivity : Activity() {
                 Prefs.setAutoDnd(this, it)
             }
         )
+        setCard.addView(
+            toggle("Auto-Boost saat game dibuka", Prefs.autoBoost(this)) {
+                Prefs.setAutoBoost(this, it)
+                if (it && !BoosterAccessibilityService.isEnabled(this)) {
+                    Toast.makeText(
+                        this, "Nyalakan layanan Aksesibilitas WEAMONS agar Auto-Boost jalan",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        )
+        setCard.addView(small(
+            "Auto-Boost: begitu game favorit (tahan lama di daftar game) atau game pilihan di layar Booster terbuka, " +
+                "bilah langsung aktif dengan profil di atas (jika profil belum dipilih, memakai Pro: Jangan Ganggu, RAM dibersihkan). " +
+                "Butuh layanan Aksesibilitas aktif dan izin tampil di atas aplikasi lain."
+        ))
         setCard.addView(small("Ukuran dan posisi berlaku saat bilah dimulai ulang. Bilah juga bisa ditarik ke pinggir mana saja."))
         root.addView(setCard)
 

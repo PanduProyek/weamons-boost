@@ -7,7 +7,7 @@ import android.os.Build
 import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
 
-// Layanan ini hanya dipakai untuk memicu screenshot bawaan sistem. Tidak membaca isi layar.
+// Layanan ini dipakai untuk screenshot bawaan sistem dan Auto-Boost. Tidak membaca isi layar.
 class BoosterAccessibilityService : AccessibilityService() {
 
     companion object {
@@ -38,7 +38,28 @@ class BoosterAccessibilityService : AccessibilityService() {
         return super.onUnbind(intent)
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    private var lastPkg = ""
+
+    // Auto-Boost: hanya membaca nama aplikasi yang sedang di depan, bukan isi layar.
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event == null || event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        val pkg = event.packageName?.toString() ?: return
+        if (pkg == packageName || pkg == "com.android.systemui") return
+        val changed = pkg != lastPkg
+        lastPkg = pkg
+        if (!changed || !Prefs.autoBoost(this) || OverlayService.alive) return
+        val games = HashSet<String>(Prefs.favs(this))
+        Prefs.boostPkg(this)?.let { games.add(it) }
+        if (!games.contains(pkg)) return
+        if (!Settings.canDrawOverlays(this)) return
+        try {
+            val i = Intent(this, OverlayService::class.java)
+            i.putExtra("pkg", pkg)
+            i.putExtra("auto", true)
+            startForegroundService(i)
+        } catch (e: Exception) {
+        }
+    }
 
     override fun onInterrupt() {}
 }
