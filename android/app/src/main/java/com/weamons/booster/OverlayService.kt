@@ -103,6 +103,9 @@ class OverlayService : Service() {
     private lateinit var macroPlayBtn: Button
     private lateinit var macroRecBtn: Button
     private lateinit var macroTv: TextView
+    private lateinit var trigBtn: Button
+    private var trigView: TextView? = null
+    private var trigParams: WindowManager.LayoutParams? = null
     private var macroPlaying = false
     private var macroGen = 0
     private var recView: FrameLayout? = null
@@ -177,6 +180,10 @@ class OverlayService : Service() {
         startTime = System.currentTimeMillis()
         buildOverlay()
         syncCross()
+        if (Prefs.crossInt(this, "trigOn", 0) == 1) {
+            addTrigger()
+            trigBtn.text = "Pemicu: ON"
+        }
         if (Prefs.autoDnd(this)) setDnd(true)
         val sp = Prefs.startProfile(this)
         if (boost) applyProfile(2)
@@ -605,7 +612,9 @@ class OverlayService : Service() {
         mac.addView(row4)
         val row5 = LinearLayout(this)
         row5.orientation = LinearLayout.HORIZONTAL
-        row5.addView(btn("\uD83D\uDC46 Auto-tap 1 tombol", "#0891B2") { startRecording(true) }, rowLp(1f))
+        row5.addView(btn("\uD83D\uDC46 Auto-tap 1", "#0891B2") { startRecording(true) }, rowLp(1f))
+        trigBtn = btn("Pemicu: OFF", "#7C3AED") { toggleTrigger() }
+        row5.addView(trigBtn, rowLp(1f))
         mac.addView(row5)
 
         handleTv = TextView(this)
@@ -934,12 +943,13 @@ class OverlayService : Service() {
         }
 
         // makro
+        trigView?.text = if (macroPlaying) "\u23F9" else "\u25B6"
         macroPlayBtn.text = if (macroPlaying) "\u23F9 Stop" else "\u25B6 Putar"
         tint(macroPlayBtn, if (macroPlaying) "#991B1B" else "#16A34A")
         val mc = Macro.count(this)
-        macroTv.text = if (macroPlaying) "Makro berjalan ($mc ketukan, diulang terus)"
+        macroTv.text = if (macroPlaying) "Makro berjalan ($mc langkah)"
         else if (mc == 0) "Belum ada makro. Tekan Rekam."
-        else "Makro tersimpan: $mc ketukan"
+        else "Makro tersimpan: $mc langkah"
 
         // slider suara dan kecerahan
         if (panelScroll.visibility == View.VISIBLE) {
@@ -1172,12 +1182,111 @@ class OverlayService : Service() {
         return false
     }
 
+    // tombol melayang kecil: sekali tekan menjalankan seluruh makro satu putaran
+    private fun toggleTrigger() {
+        if (trigView != null) {
+            removeTrigger()
+            Prefs.setCrossInt(this, "trigOn", 0)
+        } else {
+            addTrigger()
+            Prefs.setCrossInt(this, "trigOn", 1)
+        }
+        trigBtn.text = if (trigView != null) "Pemicu: ON" else "Pemicu: OFF"
+    }
+
+    private fun addTrigger() {
+        if (trigView != null) return
+        val size = dpx(52)
+        val t = TextView(this)
+        t.gravity = Gravity.CENTER
+        t.textSize = 20f
+        t.setTextColor(Color.WHITE)
+        t.text = "\u25B6"
+        val bg = GradientDrawable()
+        bg.shape = GradientDrawable.OVAL
+        bg.setColor(Color.parseColor("#CC7C3AED"))
+        t.background = bg
+        val p = WindowManager.LayoutParams(
+            size,
+            size,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        )
+        p.gravity = Gravity.TOP or Gravity.START
+        p.x = Prefs.crossInt(this, "trigX", dpx(80))
+        p.y = Prefs.crossInt(this, "trigY", dpx(120))
+        t.setOnTouchListener(object : View.OnTouchListener {
+            private var downX = 0f
+            private var downY = 0f
+            private var sx = 0
+            private var sy = 0
+            private var moved = false
+
+            override fun onTouch(v: View, e: MotionEvent): Boolean {
+                when (e.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        downX = e.rawX
+                        downY = e.rawY
+                        sx = p.x
+                        sy = p.y
+                        moved = false
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val ddx = (e.rawX - downX).toInt()
+                        val ddy = (e.rawY - downY).toInt()
+                        if (!moved && (abs(ddx) > dpx(8) || abs(ddy) > dpx(8))) moved = true
+                        if (moved) {
+                            p.x = (sx + ddx).coerceIn(0, max(0, screenW() - size))
+                            p.y = (sy + ddy).coerceIn(0, max(0, screenH() - size))
+                            try {
+                                wm.updateViewLayout(t, p)
+                            } catch (ex: Exception) {
+                            }
+                        }
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (moved) {
+                            Prefs.setCrossInt(this@OverlayService, "trigX", p.x)
+                            Prefs.setCrossInt(this@OverlayService, "trigY", p.y)
+                        } else {
+                            startMacro(false)
+                        }
+                    }
+                }
+                return true
+            }
+        })
+        trigView = t
+        trigParams = p
+        try {
+            wm.addView(t, p)
+        } catch (e: Exception) {
+            trigView = null
+            trigParams = null
+        }
+    }
+
+    private fun removeTrigger() {
+        val t = trigView ?: return
+        try {
+            wm.removeView(t)
+        } catch (e: Exception) {
+        }
+        trigView = null
+        trigParams = null
+    }
+
     private fun stopMacro() {
         macroPlaying = false
         macroGen++
     }
 
-    private fun toggleMacro() {
+    private fun toggleMacro() = startMacro(true)
+
+    private fun startMacro(loop: Boolean) {
         if (macroPlaying) {
             stopMacro()
             return
@@ -1193,21 +1302,41 @@ class OverlayService : Service() {
         hidePanel()
         Toast.makeText(this, "Makro jalan. Buka panel lalu tekan Stop untuk berhenti.", Toast.LENGTH_LONG).show()
         val g = macroGen
-        handler.postDelayed({ macroStep(steps, 0, g) }, 800)
+        handler.postDelayed({ macroStep(steps, 0, g, loop, 0) }, 600)
     }
 
-    private fun macroStep(steps: List<Macro.Step>, i: Int, gen: Int) {
+    // Langkah berikutnya baru jalan setelah gesture sebelumnya selesai, supaya tidak saling membatalkan.
+    private fun macroStep(steps: List<Macro.Step>, i: Int, gen: Int, loop: Boolean, tries: Int) {
         if (!macroPlaying || gen != macroGen) return
         val s = steps[i]
-        BoosterAccessibilityService.tap(s.x.toFloat(), s.y.toFloat(), s.dur)
-        val next = i + 1
-        val wait = if (next < steps.size) {
-            s.dur + steps[next].delay
-        } else {
-            s.dur + Prefs.macroLoopMs(this).toLong()
+        val sent = BoosterAccessibilityService.gesture(s) { ok ->
+            handler.post {
+                if (macroPlaying && gen == macroGen) {
+                    if (!ok && tries < 2) {
+                        handler.postDelayed({ macroStep(steps, i, gen, loop, tries + 1) }, 150)
+                    } else {
+                        val next = i + 1
+                        if (next < steps.size) {
+                            handler.postDelayed(
+                                { macroStep(steps, next, gen, loop, 0) },
+                                max(steps[next].delay, 60L)
+                            )
+                        } else if (loop) {
+                            handler.postDelayed(
+                                { macroStep(steps, 0, gen, loop, 0) },
+                                max(Prefs.macroLoopMs(this).toLong(), 60L)
+                            )
+                        } else {
+                            stopMacro()
+                        }
+                    }
+                }
+            }
         }
-        val ni = if (next < steps.size) next else 0
-        handler.postDelayed({ macroStep(steps, ni, gen) }, max(wait, 30L))
+        if (!sent) {
+            stopMacro()
+            Toast.makeText(this, "Makro berhenti: layanan aksesibilitas tidak aktif", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun startRecording(single: Boolean = false) {
@@ -1222,7 +1351,7 @@ class OverlayService : Service() {
         info.setTextColor(Color.WHITE)
         info.textSize = 13f
         info.setPadding(dpx(12), dpx(8), dpx(12), dpx(8))
-        info.text = if (single) "Ketuk SATU tombol yang mau ditekan otomatis" else "MEREKAM: ketuk titik yang ingin diulang (0 ketukan)"
+        info.text = if (single) "Ketuk SATU tombol yang mau ditekan otomatis" else "MEREKAM: ketuk atau geser (0 langkah)"
         val infoBg = GradientDrawable()
         infoBg.setColor(Color.parseColor("#E6E11D48"))
         infoBg.cornerRadius = dpx(10).toFloat()
@@ -1251,12 +1380,20 @@ class OverlayService : Service() {
         var dx = 0
         var dy = 0
         var lastUp = 0L
+        var lastX = 0
+        var lastY = 0
         fl.setOnTouchListener { _, e ->
             when (e.action) {
+                MotionEvent.ACTION_MOVE -> {
+                    lastX = e.rawX.toInt()
+                    lastY = e.rawY.toInt()
+                }
                 MotionEvent.ACTION_DOWN -> {
                     downT = System.currentTimeMillis()
                     dx = e.rawX.toInt()
                     dy = e.rawY.toInt()
+                    lastX = dx
+                    lastY = dy
                 }
                 MotionEvent.ACTION_UP -> {
                     val now = System.currentTimeMillis()
@@ -1266,9 +1403,14 @@ class OverlayService : Service() {
                         steps.add(Macro.Step(dx, dy, 60L, 0L))
                         done.performClick()
                     } else {
-                        steps.add(Macro.Step(dx, dy, dur, delay))
+                        val dist = Math.hypot((lastX - dx).toDouble(), (lastY - dy).toDouble())
+                        if (dist > dpx(16)) {
+                            steps.add(Macro.Step(dx, dy, dur.coerceIn(120L, 3000L), delay, lastX, lastY))
+                        } else {
+                            steps.add(Macro.Step(dx, dy, dur, delay))
+                        }
                         lastUp = now
-                        info.text = "MEREKAM: ketuk titik yang ingin diulang (${steps.size} ketukan)"
+                        info.text = "MEREKAM: ketuk atau geser (${steps.size} langkah)"
                     }
                 }
             }
@@ -1285,7 +1427,7 @@ class OverlayService : Service() {
             recView = null
             if (steps.isNotEmpty()) {
                 Macro.save(this, steps)
-                Toast.makeText(this, "Makro tersimpan: ${steps.size} ketukan", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Makro tersimpan: ${steps.size} langkah", Toast.LENGTH_LONG).show()
             } else {
                 Toast.makeText(this, "Tidak ada ketukan direkam, makro lama dipertahankan", Toast.LENGTH_SHORT).show()
             }
@@ -1323,6 +1465,7 @@ class OverlayService : Service() {
             meter?.hide()
             removeCross()
             stopMacro()
+            removeTrigger()
             recView?.let {
                 try {
                     wm.removeView(it)

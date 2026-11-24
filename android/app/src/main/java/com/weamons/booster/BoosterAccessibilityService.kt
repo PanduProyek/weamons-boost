@@ -30,14 +30,31 @@ class BoosterAccessibilityService : AccessibilityService() {
         }
 
         // ketukan di koordinat layar (dipakai makro)
-        fun tap(x: Float, y: Float, durMs: Long): Boolean {
+        // ketukan atau geseran; onDone(true) jika selesai, onDone(false) jika dibatalkan sistem
+        fun gesture(st: Macro.Step, onDone: (Boolean) -> Unit): Boolean {
             if (Build.VERSION.SDK_INT < 24) return false
             val s = instance ?: return false
             val path = Path()
-            path.moveTo(x, y)
-            val stroke = GestureDescription.StrokeDescription(path, 0L, if (durMs < 1L) 1L else durMs)
+            path.moveTo(st.x.toFloat(), st.y.toFloat())
+            val dur: Long
+            if (st.isDrag) {
+                path.lineTo(st.x2.toFloat(), st.y2.toFloat())
+                dur = if (st.dur < 120L) 120L else st.dur
+            } else {
+                dur = if (st.dur < 80L) 80L else st.dur
+            }
+            val stroke = GestureDescription.StrokeDescription(path, 0L, dur)
             val g = GestureDescription.Builder().addStroke(stroke).build()
-            return s.dispatchGesture(g, null, null)
+            val cb = object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) {
+                    onDone(true)
+                }
+
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    onDone(false)
+                }
+            }
+            return s.dispatchGesture(g, cb, null)
         }
     }
 

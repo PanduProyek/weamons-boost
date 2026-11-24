@@ -237,8 +237,9 @@ class MainActivity : Activity() {
         val macroCard = card()
         macroCard.addView(label("MAKRO (ULANG KETUKAN)"))
         macroCard.addView(small(
-            "Cara pakai: buka game, buka panel bilah, tekan Rekam, ketuk titik yang ingin diulang (urutan dan jedanya ikut tersimpan), " +
-                "tekan Selesai. Tekan Putar untuk mengulang terus, Stop untuk berhenti. Butuh layanan aksesibilitas aktif."
+            "Cara pakai: buka game, buka panel bilah, tekan Rekam, lalu ketuk atau geser sesuai urutan (jeda ikut tersimpan), tekan Selesai. " +
+                "Putar = ulang terus sampai Stop. Pemicu = tombol bulat melayang; sekali tekan menjalankan satu putaran makro. " +
+                "Jeda tiap langkah bisa diatur di bawah. Butuh layanan aksesibilitas aktif."
         ))
         val loopT = small("Jeda antar putaran: " + Prefs.macroLoopMs(this) / 1000.0 + " detik")
         val loopBar = SeekBar(this)
@@ -255,9 +256,61 @@ class MainActivity : Activity() {
         })
         macroCard.addView(loopT)
         macroCard.addView(loopBar)
-        macroCard.addView(button("Hapus makro tersimpan") {
+        macroCard.addView(small("LANGKAH MAKRO (atur jeda tiap langkah)"))
+        val stepsBox = LinearLayout(this)
+        stepsBox.orientation = LinearLayout.VERTICAL
+        macroCard.addView(stepsBox)
+        fun refreshSteps() {
+            stepsBox.removeAllViews()
+            val list = ArrayList(Macro.load(this))
+            if (list.isEmpty()) {
+                stepsBox.addView(small("Belum ada langkah. Rekam dulu dari panel bilah."))
+                return
+            }
+            for (i in list.indices) {
+                val st = list[i]
+                val row = LinearLayout(this)
+                row.orientation = LinearLayout.HORIZONTAL
+                row.gravity = Gravity.CENTER_VERTICAL
+                val what = if (st.isDrag) "Geser (${st.x},${st.y}) ke (${st.x2},${st.y2})" else "Ketuk (${st.x},${st.y})"
+                val jeda = if (i == 0) "awal" else "jeda ${st.delay} ms"
+                val t = small("${i + 1}. $what\n    $jeda")
+                row.addView(t, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                fun change(d: Long) {
+                    val n = ArrayList(Macro.load(this))
+                    if (i < n.size) {
+                        val o = n[i]
+                        n[i] = Macro.Step(o.x, o.y, o.dur, (o.delay + d).coerceAtLeast(0L), o.x2, o.y2)
+                        Macro.save(this, n)
+                    }
+                    refreshSteps()
+                }
+                if (i > 0) {
+                    row.addView(button("-0.1s") { change(-100L) })
+                    row.addView(button("+0.1s") { change(100L) })
+                    row.addView(button("+1s") { change(1000L) })
+                }
+                row.addView(button("X") {
+                    val n = ArrayList(Macro.load(this))
+                    if (i < n.size) {
+                        n.removeAt(i)
+                        if (n.isNotEmpty()) {
+                            val f = n[0]
+                            n[0] = Macro.Step(f.x, f.y, f.dur, 0L, f.x2, f.y2)
+                        }
+                        Macro.save(this, n)
+                    }
+                    refreshSteps()
+                })
+                stepsBox.addView(row)
+            }
+        }
+        refreshSteps()
+        macroRefresh = { refreshSteps() }
+        macroCard.addView(button("Hapus semua langkah") {
             Prefs.setMacroRaw(this, "")
             Toast.makeText(this, "Makro dihapus", Toast.LENGTH_SHORT).show()
+            refreshSteps()
         })
         macroCard.addView(small(
             "Catatan: pakai untuk game offline atau aktivitas AFK. Banyak game online melarang otomatisasi dan bisa menindak akun, " +
@@ -347,8 +400,11 @@ class MainActivity : Activity() {
         }
     }
 
+    private var macroRefresh: (() -> Unit)? = null
+
     override fun onResume() {
         super.onResume()
+        macroRefresh?.invoke()
         refreshStatus()
         renderStats()
     }
