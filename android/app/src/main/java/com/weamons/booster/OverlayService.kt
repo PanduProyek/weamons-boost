@@ -108,6 +108,8 @@ class OverlayService : Service() {
     private var trigParams: WindowManager.LayoutParams? = null
     private var macroPlaying = false
     private var macroGen = 0
+    private var stepSeq = 0
+    private var macroStatus = ""
     private var recView: FrameLayout? = null
     private var volTracking = false
     private var brightTracking = false
@@ -947,7 +949,7 @@ class OverlayService : Service() {
         macroPlayBtn.text = if (macroPlaying) "\u23F9 Stop" else "\u25B6 Putar"
         tint(macroPlayBtn, if (macroPlaying) "#991B1B" else "#16A34A")
         val mc = Macro.count(this)
-        macroTv.text = if (macroPlaying) "Makro berjalan ($mc langkah)"
+        macroTv.text = if (macroPlaying) "Makro berjalan. $macroStatus"
         else if (mc == 0) "Belum ada makro. Tekan Rekam."
         else "Makro tersimpan: $mc langkah"
 
@@ -1305,13 +1307,52 @@ class OverlayService : Service() {
         handler.postDelayed({ macroStep(steps, 0, g, loop, 0) }, 600)
     }
 
-    // Langkah berikutnya baru jalan setelah gesture sebelumnya selesai, supaya tidak saling membatalkan.
+    // titik merah sesaat di lokasi ketukan, supaya terlihat ke mana makro mengetuk
+    private fun showTapMarker(st: Macro.Step) {
+        try {
+            val size = dpx(30)
+            val v = View(this)
+            val bg = GradientDrawable()
+            bg.shape = GradientDrawable.OVAL
+            bg.setColor(Color.parseColor("#55FF2D2D"))
+            bg.setStroke(dpx(2), Color.parseColor("#FFFF2D2D"))
+            v.background = bg
+            val p = WindowManager.LayoutParams(
+                size,
+                size,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT
+            )
+            p.gravity = Gravity.TOP or Gravity.START
+            p.x = st.x - size / 2
+            p.y = st.y - size / 2
+            wm.addView(v, p)
+            handler.postDelayed({
+                try {
+                    wm.removeView(v)
+                } catch (e: Exception) {
+                }
+            }, 400)
+        } catch (e: Exception) {
+        }
+    }
+
+    // Langkah berikutnya jalan setelah gesture sebelumnya selesai. Ada pengaman waktu jika sistem tidak membalas.
     private fun macroStep(steps: List<Macro.Step>, i: Int, gen: Int, loop: Boolean, tries: Int) {
         if (!macroPlaying || gen != macroGen) return
         val s = steps[i]
-        val sent = BoosterAccessibilityService.gesture(s) { ok ->
+        stepSeq++
+        val my = stepSeq
+        var finished = false
+        val advance: (Boolean, String) -> Unit = { ok, why ->
             handler.post {
-                if (macroPlaying && gen == macroGen) {
+                if (!finished && my == stepSeq && macroPlaying && gen == macroGen) {
+                    finished = true
+                    macroStatus = "Langkah ${i + 1}/${steps.size}: $why"
                     if (!ok && tries < 2) {
                         handler.postDelayed({ macroStep(steps, i, gen, loop, tries + 1) }, 150)
                     } else {
@@ -1333,9 +1374,20 @@ class OverlayService : Service() {
                 }
             }
         }
+        showTapMarker(s)
+        val sent = BoosterAccessibilityService.gesture(s) { ok ->
+            advance(ok, if (ok) "terkirim" else "dibatalkan sistem")
+        }
         if (!sent) {
             stopMacro()
-            Toast.makeText(this, "Makro berhenti: layanan aksesibilitas tidak aktif", Toast.LENGTH_LONG).show()
+            macroStatus = "ditolak sistem: matikan lalu nyalakan lagi layanan aksesibilitas WEAMONS"
+            Toast.makeText(
+                this,
+                "Makro ditolak sistem. Matikan lalu nyalakan lagi layanan aksesibilitas WEAMONS.",
+                Toast.LENGTH_LONG
+            ).show()
+        } else {
+            handler.postDelayed({ advance(false, "tidak ada respons dari sistem") }, s.dur + 2000L)
         }
     }
 
