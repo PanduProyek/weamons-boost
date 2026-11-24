@@ -27,6 +27,18 @@ object Prefs {
         sp(c).edit().putFloat("barFrac", v).apply()
     }
 
+    // ---------- makro ----------
+    fun macroRaw(c: Context): String = sp(c).getString("macroRaw", "") ?: ""
+    fun setMacroRaw(c: Context, v: String) {
+        sp(c).edit().putString("macroRaw", v).apply()
+    }
+
+    // jeda antar putaran makro (ms)
+    fun macroLoopMs(c: Context): Int = sp(c).getInt("macroLoopMs", 1000)
+    fun setMacroLoopMs(c: Context, v: Int) {
+        sp(c).edit().putInt("macroLoopMs", v).apply()
+    }
+
     // ---------- crosshair ----------
     fun crossOn(c: Context): Boolean = sp(c).getBoolean("crossOn", false)
     fun setCrossOn(c: Context, v: Boolean) {

@@ -1,13 +1,15 @@
 package com.weamons.booster
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
+import android.graphics.Path
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
 
-// Layanan ini dipakai untuk screenshot bawaan sistem dan Auto-Boost. Tidak membaca isi layar.
+// Layanan ini dipakai untuk screenshot bawaan sistem, Auto-Boost, dan memutar ketukan makro. Tidak membaca isi layar.
 class BoosterAccessibilityService : AccessibilityService() {
 
     companion object {
@@ -25,6 +27,17 @@ class BoosterAccessibilityService : AccessibilityService() {
             if (Build.VERSION.SDK_INT < 28) return false
             val s = instance ?: return false
             return s.performGlobalAction(AccessibilityService.GLOBAL_ACTION_TAKE_SCREENSHOT)
+        }
+
+        // ketukan di koordinat layar (dipakai makro)
+        fun tap(x: Float, y: Float, durMs: Long): Boolean {
+            if (Build.VERSION.SDK_INT < 24) return false
+            val s = instance ?: return false
+            val path = Path()
+            path.moveTo(x, y)
+            val stroke = GestureDescription.StrokeDescription(path, 0L, if (durMs < 1L) 1L else durMs)
+            val g = GestureDescription.Builder().addStroke(stroke).build()
+            return s.dispatchGesture(g, null, null)
         }
     }
 

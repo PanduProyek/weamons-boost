@@ -34,6 +34,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.Button
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
@@ -99,6 +100,12 @@ class OverlayService : Service() {
     private lateinit var graph: GraphView
     private lateinit var meterBtn: Button
     private var meter: MeterOverlay? = null
+    private lateinit var macroPlayBtn: Button
+    private lateinit var macroRecBtn: Button
+    private lateinit var macroTv: TextView
+    private var macroPlaying = false
+    private var macroGen = 0
+    private var recView: FrameLayout? = null
     private var volTracking = false
     private var brightTracking = false
     private var breakMin = 0
@@ -585,6 +592,17 @@ class OverlayService : Service() {
         // meter melayang: CPU / RAM / BAT / TEMP / HZ
         meterBtn = btn("Meter: OFF", "#0F766E") { toggleMeter() }
         section("METER").addView(meterBtn, rowLp(1f))
+        // makro
+        val mac = section("MAKRO (ULANG KETUKAN)")
+        macroTv = txt(11f, "#FFFFFF")
+        mac.addView(macroTv)
+        val row4 = LinearLayout(this)
+        row4.orientation = LinearLayout.HORIZONTAL
+        macroRecBtn = btn("\u23FA Rekam", "#E11D48") { startRecording() }
+        macroPlayBtn = btn("\u25B6 Putar", "#16A34A") { toggleMacro() }
+        row4.addView(macroRecBtn, rowLp(1f))
+        row4.addView(macroPlayBtn, rowLp(1f))
+        mac.addView(row4)
 
         handleTv = TextView(this)
         handleTv.textSize = 10f * sc
@@ -911,6 +929,14 @@ class OverlayService : Service() {
             tint(recBtn, "#E11D48")
         }
 
+        // makro
+        macroPlayBtn.text = if (macroPlaying) "\u23F9 Stop" else "\u25B6 Putar"
+        tint(macroPlayBtn, if (macroPlaying) "#991B1B" else "#16A34A")
+        val mc = Macro.count(this)
+        macroTv.text = if (macroPlaying) "Makro berjalan ($mc ketukan, diulang terus)"
+        else if (mc == 0) "Belum ada makro. Tekan Rekam."
+        else "Makro tersimpan: $mc ketukan"
+
         // slider suara dan kecerahan
         if (panelScroll.visibility == View.VISIBLE) {
             fitPanel()
@@ -1126,6 +1152,152 @@ class OverlayService : Service() {
         updateMeterBtn()
     }
 
+    // ---------- makro ----------
+    private fun needAccessibility(): Boolean {
+        if (Build.VERSION.SDK_INT < 24 || !BoosterAccessibilityService.isEnabled(this)) {
+            Toast.makeText(
+                this,
+                "Aktifkan layanan aksesibilitas WEAMONS dulu (lihat panduan di aplikasi)",
+                Toast.LENGTH_LONG
+            ).show()
+            val i = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(i)
+            return true
+        }
+        return false
+    }
+
+    private fun stopMacro() {
+        macroPlaying = false
+        macroGen++
+    }
+
+    private fun toggleMacro() {
+        if (macroPlaying) {
+            stopMacro()
+            return
+        }
+        val steps = Macro.load(this)
+        if (steps.isEmpty()) {
+            Toast.makeText(this, "Belum ada makro. Tekan Rekam dulu", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (needAccessibility()) return
+        macroPlaying = true
+        macroGen++
+        hidePanel()
+        Toast.makeText(this, "Makro jalan. Buka panel lalu tekan Stop untuk berhenti.", Toast.LENGTH_LONG).show()
+        val g = macroGen
+        handler.postDelayed({ macroStep(steps, 0, g) }, 800)
+    }
+
+    private fun macroStep(steps: List<Macro.Step>, i: Int, gen: Int) {
+        if (!macroPlaying || gen != macroGen) return
+        val s = steps[i]
+        BoosterAccessibilityService.tap(s.x.toFloat(), s.y.toFloat(), s.dur)
+        val next = i + 1
+        val wait = if (next < steps.size) {
+            s.dur + steps[next].delay
+        } else {
+            s.dur + Prefs.macroLoopMs(this).toLong()
+        }
+        val ni = if (next < steps.size) next else 0
+        handler.postDelayed({ macroStep(steps, ni, gen) }, max(wait, 30L))
+    }
+
+    private fun startRecording() {
+        if (recView != null) return
+        if (needAccessibility()) return
+        stopMacro()
+        hidePanel()
+        val steps = ArrayList<Macro.Step>()
+        val fl = FrameLayout(this)
+        fl.setBackgroundColor(Color.parseColor("#33000000"))
+        val info = TextView(this)
+        info.setTextColor(Color.WHITE)
+        info.textSize = 13f
+        info.setPadding(dpx(12), dpx(8), dpx(12), dpx(8))
+        info.text = "MEREKAM: ketuk titik yang ingin diulang (0 ketukan)"
+        val infoBg = GradientDrawable()
+        infoBg.setColor(Color.parseColor("#E6E11D48"))
+        infoBg.cornerRadius = dpx(10).toFloat()
+        info.background = infoBg
+        val ilp = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT
+        )
+        ilp.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+        ilp.topMargin = dpx(12)
+        fl.addView(info, ilp)
+
+        val done = Button(this)
+        done.text = "Selesai"
+        done.isAllCaps = false
+        done.setTextColor(Color.WHITE)
+        val dbg = GradientDrawable()
+        dbg.setColor(Color.parseColor("#16A34A"))
+        dbg.cornerRadius = dpx(10).toFloat()
+        done.background = dbg
+        val dlp = FrameLayout.LayoutParams(dpx(140), dpx(44))
+        dlp.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+        dlp.bottomMargin = dpx(24)
+        fl.addView(done, dlp)
+
+        var downT = 0L
+        var dx = 0
+        var dy = 0
+        var lastUp = 0L
+        fl.setOnTouchListener { _, e ->
+            when (e.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    downT = System.currentTimeMillis()
+                    dx = e.rawX.toInt()
+                    dy = e.rawY.toInt()
+                }
+                MotionEvent.ACTION_UP -> {
+                    val now = System.currentTimeMillis()
+                    val dur = (now - downT).coerceIn(30L, 5000L)
+                    val delay = if (steps.isEmpty()) 0L else (downT - lastUp).coerceIn(0L, 600000L)
+                    steps.add(Macro.Step(dx, dy, dur, delay))
+                    lastUp = now
+                    info.text = "MEREKAM: ketuk titik yang ingin diulang (${steps.size} ketukan)"
+                }
+            }
+            true
+        }
+        done.setOnClickListener {
+            val rv = recView
+            if (rv != null) {
+                try {
+                    wm.removeView(rv)
+                } catch (e: Exception) {
+                }
+            }
+            recView = null
+            if (steps.isNotEmpty()) {
+                Macro.save(this, steps)
+                Toast.makeText(this, "Makro tersimpan: ${steps.size} ketukan", Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(this, "Tidak ada ketukan direkam, makro lama dipertahankan", Toast.LENGTH_SHORT).show()
+            }
+        }
+        val p = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        )
+        recView = fl
+        try {
+            wm.addView(fl, p)
+        } catch (e: Exception) {
+            recView = null
+        }
+    }
+
     private fun flushStats() {
         val pkg = gamePkg
         if (pkg != null && startTime > 0L) {
@@ -1141,6 +1313,14 @@ class OverlayService : Service() {
         if (root != null) {
             meter?.hide()
             removeCross()
+            stopMacro()
+            recView?.let {
+                try {
+                    wm.removeView(it)
+                } catch (e: Exception) {
+                }
+            }
+            recView = null
             flushStats()
             if (dndOn) {
                 try {

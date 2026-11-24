@@ -233,6 +233,38 @@ class MainActivity : Activity() {
         ))
         root.addView(crossCard)
 
+        // ---------- MAKRO ----------
+        val macroCard = card()
+        macroCard.addView(label("MAKRO (ULANG KETUKAN)"))
+        macroCard.addView(small(
+            "Cara pakai: buka game, buka panel bilah, tekan Rekam, ketuk titik yang ingin diulang (urutan dan jedanya ikut tersimpan), " +
+                "tekan Selesai. Tekan Putar untuk mengulang terus, Stop untuk berhenti. Butuh layanan aksesibilitas aktif."
+        ))
+        val loopT = small("Jeda antar putaran: " + Prefs.macroLoopMs(this) / 1000.0 + " detik")
+        val loopBar = SeekBar(this)
+        loopBar.max = 300
+        loopBar.progress = Prefs.macroLoopMs(this) / 100
+        loopBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                Prefs.setMacroLoopMs(this@MainActivity, p * 100)
+                loopT.text = "Jeda antar putaran: " + (p / 10.0) + " detik"
+            }
+
+            override fun onStartTrackingTouch(s: SeekBar?) {}
+            override fun onStopTrackingTouch(s: SeekBar?) {}
+        })
+        macroCard.addView(loopT)
+        macroCard.addView(loopBar)
+        macroCard.addView(button("Hapus makro tersimpan") {
+            Prefs.setMacroRaw(this, "")
+            Toast.makeText(this, "Makro dihapus", Toast.LENGTH_SHORT).show()
+        })
+        macroCard.addView(small(
+            "Catatan: pakai untuk game offline atau aktivitas AFK. Banyak game online melarang otomatisasi dan bisa menindak akun, " +
+                "termasuk Roblox dan aturan tiap game di dalamnya (cek aturan game-nya). Risiko ada di kamu."
+        ))
+        root.addView(macroCard)
+
         // ---------- PANDUAN ----------
         val guideCard = card()
         guideCard.addView(label("PANDUAN FITUR"))
