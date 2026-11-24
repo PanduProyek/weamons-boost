@@ -603,6 +603,10 @@ class OverlayService : Service() {
         row4.addView(macroRecBtn, rowLp(1f))
         row4.addView(macroPlayBtn, rowLp(1f))
         mac.addView(row4)
+        val row5 = LinearLayout(this)
+        row5.orientation = LinearLayout.HORIZONTAL
+        row5.addView(btn("\uD83D\uDC46 Auto-tap 1 tombol", "#0891B2") { startRecording(true) }, rowLp(1f))
+        mac.addView(row5)
 
         handleTv = TextView(this)
         handleTv.textSize = 10f * sc
@@ -1206,7 +1210,7 @@ class OverlayService : Service() {
         handler.postDelayed({ macroStep(steps, ni, gen) }, max(wait, 30L))
     }
 
-    private fun startRecording() {
+    private fun startRecording(single: Boolean = false) {
         if (recView != null) return
         if (needAccessibility()) return
         stopMacro()
@@ -1218,7 +1222,7 @@ class OverlayService : Service() {
         info.setTextColor(Color.WHITE)
         info.textSize = 13f
         info.setPadding(dpx(12), dpx(8), dpx(12), dpx(8))
-        info.text = "MEREKAM: ketuk titik yang ingin diulang (0 ketukan)"
+        info.text = if (single) "Ketuk SATU tombol yang mau ditekan otomatis" else "MEREKAM: ketuk titik yang ingin diulang (0 ketukan)"
         val infoBg = GradientDrawable()
         infoBg.setColor(Color.parseColor("#E6E11D48"))
         infoBg.cornerRadius = dpx(10).toFloat()
@@ -1241,7 +1245,7 @@ class OverlayService : Service() {
         val dlp = FrameLayout.LayoutParams(dpx(140), dpx(44))
         dlp.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
         dlp.bottomMargin = dpx(24)
-        fl.addView(done, dlp)
+        if (!single) fl.addView(done, dlp)
 
         var downT = 0L
         var dx = 0
@@ -1258,9 +1262,14 @@ class OverlayService : Service() {
                     val now = System.currentTimeMillis()
                     val dur = (now - downT).coerceIn(30L, 5000L)
                     val delay = if (steps.isEmpty()) 0L else (downT - lastUp).coerceIn(0L, 600000L)
-                    steps.add(Macro.Step(dx, dy, dur, delay))
-                    lastUp = now
-                    info.text = "MEREKAM: ketuk titik yang ingin diulang (${steps.size} ketukan)"
+                    if (single) {
+                        steps.add(Macro.Step(dx, dy, 60L, 0L))
+                        done.performClick()
+                    } else {
+                        steps.add(Macro.Step(dx, dy, dur, delay))
+                        lastUp = now
+                        info.text = "MEREKAM: ketuk titik yang ingin diulang (${steps.size} ketukan)"
+                    }
                 }
             }
             true

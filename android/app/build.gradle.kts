@@ -11,8 +11,8 @@ android {
         applicationId = "com.weamons.booster"
         minSdk = 26
         targetSdk = 33
-        versionCode = 8
-        versionName = "2.2"
+        versionCode = 9
+        versionName = "2.3"
     }
 
     signingConfigs {
